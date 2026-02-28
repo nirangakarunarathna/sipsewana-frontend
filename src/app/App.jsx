@@ -8,6 +8,7 @@ import Reports from "../pages/Reports.jsx";
 import Subjects from "../pages/Subjects.jsx";
 import Grades from "../pages/Grades.jsx";
 import Teachers from "../pages/Teachers.jsx";
+import StudentClasses from "../pages/StudentClasses.jsx";
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/studentPayments" element={<StudentPayments />} />
+        <Route path="/studentClasses" element={<StudentClasses />} />
         <Route path="/students/new" element={<StudentNew />} />
         <Route path="/classes" element={<Classes />} />
         <Route path="/subjects" element={<Subjects />} />

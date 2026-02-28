@@ -11,6 +11,7 @@ export default function Layout() {
         <nav className="nav">
           <NavLink to="/" className={navItem}>Dashboard</NavLink>
           <NavLink to="/studentPayments" className={navItem}>Students Payments</NavLink>
+          <NavLink to="/studentClasses" className={navItem}>Students Classes</NavLink>
           <NavLink to="/students/new" className={navItem}>Register Student</NavLink>
           <NavLink to="/classes" className={navItem}>Classes</NavLink>
           <NavLink to="/subjects" className={navItem}>Subjects</NavLink>
