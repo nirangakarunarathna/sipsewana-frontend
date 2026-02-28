@@ -1,0 +1,51 @@
+:root { color-scheme: light; }
+body { margin: 0; background: #fafafa; }
+
+.topbar {
+  display: flex; gap: 16px; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid #eee; background: white;
+  position: sticky; top: 0;
+}
+.brand { font-weight: 700; text-decoration: none; color: black; }
+.nav { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.container { max-width: 1100px; margin: 18px auto; padding: 0 14px; }
+
+.grid { display: grid; gap: 14px; }
+.card { background: white; border: 1px solid #eee; border-radius: 12px; padding: 14px; }
+.cardTitle { font-weight: 700; margin-bottom: 10px; }
+
+.form { display: grid; gap: 10px; max-width: 420px; }
+.label { font-size: 12px; color: #333; }
+
+.input {
+  padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px;
+  outline: none;
+}
+.input:focus { border-color: #bbb; }
+
+.btn {
+  padding: 10px 12px; border: 1px solid #111; border-radius: 10px;
+  background: #111; color: white; cursor: pointer;
+}
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btnGhost {
+  background: transparent; color: #111;
+}
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.muted { color: #666; font-size: 13px; margin-top: 8px; }
+
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { border-bottom: 1px solid #eee; padding: 10px 8px; text-align: left; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid #ddd; }
+.pillPaid { background: #f1fff5; }
+.pillDue { background: #fff7f1; }
+
+.statGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stat { border: 1px solid #eee; border-radius: 12px; padding: 12px; background: #fcfcfc; }
+.statNum { font-size: 22px; font-weight: 800; }
+
+.check { display: flex; gap: 8px; align-items: center; }
