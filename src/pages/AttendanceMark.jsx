@@ -34,33 +34,34 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
-// helpers
 function ymNow() {
-  return new Date().toISOString().slice(0, 7);
+  return new Date().toISOString().slice(0, 7); // YYYY-MM
 }
 
-function fmtDate(d) {
-  // expects YYYY-MM-DD
+function fmtDateShort(d) {
+  // YYYY-MM-DD -> DD/MM
   if (!d) return "";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}`; // 01/03 style
+  const [, m, day] = d.split("-");
+  return `${day}/${m}`;
 }
 
-export default function AttendanceMark() {
+function safeTime(t) {
+  // "08:00:00" -> "08:00"
+  return t ? String(t).slice(0, 5) : "";
+}
+
+export default function AttendanceMarkTable() {
   // selectors
   const [classes, setClasses] = useState([]);
   const [classId, setClassId] = useState("");
   const [yearMonth, setYearMonth] = useState(ymNow());
 
-  // loaded data
+  // loaded
   const [sessions, setSessions] = useState([]); // {id, session_date, start_time, end_time}
-  const [students, setStudents] = useState([]); // {id/studentId, fullName/name,...}
-  const [existingAttendance, setExistingAttendance] = useState([]); // from API
+  const [students, setStudents] = useState([]); // from student-classes endpoint
+  const [grid, setGrid] = useState({}); // { [studentId]: { [sessionId]: boolean } }
 
-  // grid state: { [studentId]: { [sessionId]: true/false } }
-  const [grid, setGrid] = useState({});
-
-  // loading + messages
+  // states
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [loadingGrid, setLoadingGrid] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -98,29 +99,38 @@ export default function AttendanceMark() {
 
     try {
       const [sessRes, stuRes, attRes] = await Promise.all([
-        apiFetch(
-          `/class-sessions?classId=${selectedClassId}&yearMonth=${selectedYearMonth}`
-        ),
+        apiFetch(`/class-sessions?classId=${selectedClassId}&yearMonth=${selectedYearMonth}`),
         apiFetch(`/student-classes?classId=${selectedClassId}`),
-        apiFetch(
-          `/attendance?classId=${selectedClassId}&yearMonth=${selectedYearMonth}`
-        ),
+        apiFetch(`/student-attendances?classId=${selectedClassId}&yearMonth=${selectedYearMonth}`),
       ]);
 
       const sessList = Array.isArray(sessRes) ? sessRes : sessRes?.data ?? [];
       const stuList = Array.isArray(stuRes) ? stuRes : stuRes?.data ?? [];
       const attList = Array.isArray(attRes) ? attRes : attRes?.data ?? [];
 
+      // Optional sort: by session_date then start_time
+      sessList.sort((a, b) => {
+        const ad = String(a.session_date || "").localeCompare(String(b.session_date || ""));
+        if (ad !== 0) return ad;
+        return String(a.start_time || "").localeCompare(String(b.start_time || ""));
+      });
+
+      // Optional sort: by name
+      stuList.sort((a, b) => {
+        const an = String(
+          a.fullName ?? a.name ?? a.studentName ?? a.StudentName ?? ""
+        ).toLowerCase();
+        const bn = String(
+          b.fullName ?? b.name ?? b.studentName ?? b.StudentName ?? ""
+        ).toLowerCase();
+        return an.localeCompare(bn);
+      });
+
       setSessions(sessList);
       setStudents(stuList);
-      setExistingAttendance(attList);
 
-      // Build initial grid:
-      // default false (absent) for all student-session,
-      // then apply existing attendance (status P -> true)
+      // Build grid (default false)
       const next = {};
-
-      // initialize all to false
       for (const st of stuList) {
         const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
         next[sid] = {};
@@ -129,9 +139,7 @@ export default function AttendanceMark() {
         }
       }
 
-      // apply existing
-      // expected attendance item shape:
-      // { session_id, student_id, status } OR {sessionId, studentId, status}
+      // Apply existing attendance
       for (const a of attList) {
         const sid = String(a.student_id ?? a.studentId);
         const sesId = String(a.session_id ?? a.sessionId);
@@ -145,7 +153,6 @@ export default function AttendanceMark() {
       setErrorMsg(e.message || "Failed to load attendance");
       setSessions([]);
       setStudents([]);
-      setExistingAttendance([]);
       setGrid({});
     } finally {
       setLoadingGrid(false);
@@ -157,13 +164,14 @@ export default function AttendanceMark() {
   }, []);
 
   useEffect(() => {
-    if (classId && yearMonth) {
-      loadAttendanceGrid(classId, yearMonth);
-    }
+    if (classId && yearMonth) loadAttendanceGrid(classId, yearMonth);
   }, [classId, yearMonth]);
 
+  const hasStudents = students.length > 0;
+  const hasSessions = sessions.length > 0;
+
   // ----------------------------
-  // Toggle checkbox
+  // Toggle single cell
   // ----------------------------
   function toggleCell(studentId, sessionId) {
     setGrid((prev) => {
@@ -182,7 +190,7 @@ export default function AttendanceMark() {
   }
 
   // ----------------------------
-  // Header actions: mark all present/absent for a session (column)
+  // Column actions: mark all present/absent for a session
   // ----------------------------
   function setColumn(sessionId, value) {
     setGrid((prev) => {
@@ -190,20 +198,20 @@ export default function AttendanceMark() {
       const next = { ...prev };
       for (const st of students) {
         const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
-        if (!next[sid]) next[sid] = {};
-        next[sid] = { ...next[sid], [sesId]: value };
+        next[sid] = { ...(next[sid] || {}), [sesId]: value };
       }
       return next;
     });
   }
 
   // ----------------------------
-  // Save all (requires backend bulk endpoint)
+  // Save bulk
   // ----------------------------
   async function saveAll() {
     if (!classId || !yearMonth) return;
-    if (!sessions.length || !students.length) {
-      setErrorMsg("No sessions or students found for selected month/class.");
+
+    if (!hasStudents || !hasSessions) {
+      setErrorMsg("No students or sessions found for selected class/month.");
       return;
     }
 
@@ -212,7 +220,6 @@ export default function AttendanceMark() {
     setSuccessMsg("");
 
     try {
-      // Build bulk payload: one record per student per session
       const records = [];
       for (const st of students) {
         const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
@@ -224,7 +231,6 @@ export default function AttendanceMark() {
             sessionId: Number(sesId),
             studentId: Number(sid),
             status: present ? "P" : "A",
-            // optional flags (you can add UI later)
             isNewStudent: false,
             isExtraClass: false,
             extraClassId: null,
@@ -233,8 +239,6 @@ export default function AttendanceMark() {
         }
       }
 
-      // You will create this endpoint in backend:
-      // POST /attendance/bulk
       await apiFetch("/attendance/bulk", {
         method: "POST",
         body: JSON.stringify({
@@ -245,7 +249,6 @@ export default function AttendanceMark() {
       });
 
       setSuccessMsg("Attendance saved successfully.");
-      // reload to ensure DB sync
       await loadAttendanceGrid(classId, yearMonth);
     } catch (e) {
       setErrorMsg(e.message || "Failed to save attendance");
@@ -254,10 +257,13 @@ export default function AttendanceMark() {
     }
   }
 
-  // ----------------------------
-  // Derived
-  // ----------------------------
-  const hasData = students.length > 0 && sessions.length > 0;
+  // Table styles to keep Student column sticky and allow horizontal scroll
+  const stickyThTd = {
+    position: "sticky",
+    left: 0,
+    background: "white",
+    zIndex: 2,
+  };
 
   return (
     <div className="grid gap-4">
@@ -291,60 +297,52 @@ export default function AttendanceMark() {
 
           <div>
             <label className="label">Year - Month</label>
-            <Input
-              type="month"
-              value={yearMonth}
-              onChange={(e) => setYearMonth(e.target.value)}
-            />
+            <Input type="month" value={yearMonth} onChange={(e) => setYearMonth(e.target.value)} />
           </div>
 
-          <Button
-            type="button"
-            onClick={() => loadAttendanceGrid(classId, yearMonth)}
-            disabled={loadingGrid}
-          >
+          <Button type="button" onClick={() => loadAttendanceGrid(classId, yearMonth)} disabled={loadingGrid}>
             {loadingGrid ? "Loading..." : "Reload"}
           </Button>
         </div>
 
         <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button type="button" onClick={saveAll} disabled={saving || loadingGrid || !hasData}>
+          <Button type="button" onClick={saveAll} disabled={saving || loadingGrid || !hasStudents || !hasSessions}>
             {saving ? "Saving..." : "Save All"}
           </Button>
         </div>
 
-        {!hasData ? (
+        {!hasStudents ? (
           <div className="muted" style={{ marginTop: 12 }}>
-            {loadingGrid
-              ? "Loading sessions and students..."
-              : "Select class and month to load sessions and enrolled students."}
+            {loadingGrid ? "Loading..." : "No students found for this class."}
+          </div>
+        ) : !hasSessions ? (
+          <div className="muted" style={{ marginTop: 12 }}>
+            {loadingGrid ? "Loading..." : "No sessions found for this month."}
           </div>
         ) : (
-          <div className="tableWrap" style={{ marginTop: 12 }}>
-            <table className="table">
+          <div className="tableWrap" style={{ marginTop: 12, overflowX: "auto" }}>
+            <table className="table" style={{ minWidth: 900 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", left: 0, background: "white", zIndex: 2 }}>
-                    Student
+                  <th style={{ ...stickyThTd, minWidth: 260 }}>
+                    Student (Name / Mobile)
                   </th>
 
                   {sessions.map((ses) => (
-                    <th key={ses.id} style={{ textAlign: "center", minWidth: 90 }}>
+                    <th key={ses.id} style={{ minWidth: 110, textAlign: "center" }}>
                       <div style={{ display: "grid", gap: 6, justifyItems: "center" }}>
-                        <div style={{ fontWeight: 600 }}>
-                          {fmtDate(ses.session_date)}
+                        <div style={{ fontWeight: 700 }}>
+                          {fmtDateShort(ses.session_date)}
                         </div>
                         <div className="muted" style={{ fontSize: 12 }}>
-                          {ses.start_time?.slice(0, 5)} - {ses.end_time?.slice(0, 5)}
+                          {safeTime(ses.start_time)} - {safeTime(ses.end_time)}
                         </div>
-
-                        {/* column helpers */}
                         <div style={{ display: "flex", gap: 6 }}>
                           <button
                             type="button"
                             className="linkBtn"
                             onClick={() => setColumn(ses.id, true)}
-                            title="Mark all present for this day"
+                            title="Mark all present"
                           >
                             All P
                           </button>
@@ -352,7 +350,7 @@ export default function AttendanceMark() {
                             type="button"
                             className="linkBtn"
                             onClick={() => setColumn(ses.id, false)}
-                            title="Mark all absent for this day"
+                            title="Mark all absent"
                           >
                             All A
                           </button>
@@ -365,9 +363,7 @@ export default function AttendanceMark() {
 
               <tbody>
                 {students.map((st) => {
-                  const sid = String(
-                    st.studentId ?? st.student_id ?? st.id ?? st.StudentID
-                  );
+                  const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
                   const name =
                     st.fullName ??
                     st.name ??
@@ -375,18 +371,22 @@ export default function AttendanceMark() {
                     st.StudentName ??
                     `Student #${sid}`;
 
+                  const mobile =
+                    st.studentMobile ??
+                    st.mobile ??
+                    st.phone ??
+                    st.StudentMobile ??
+                    "";
+
                   return (
                     <tr key={sid}>
-                      <td
-                        style={{
-                          position: "sticky",
-                          left: 0,
-                          background: "white",
-                          zIndex: 1,
-                          minWidth: 220,
-                        }}
-                      >
-                        {name}
+                      <td style={{ ...stickyThTd, zIndex: 1 }}>
+                        <div style={{ display: "grid" }}>
+                          <span style={{ fontWeight: 700 }}>{name}</span>
+                          <span className="muted" style={{ fontSize: 12 }}>
+                            {mobile ? mobile : `ID: ${sid}`}
+                          </span>
+                        </div>
                       </td>
 
                       {sessions.map((ses) => {
@@ -399,6 +399,7 @@ export default function AttendanceMark() {
                               type="checkbox"
                               checked={checked}
                               onChange={() => toggleCell(sid, sesId)}
+                              style={{ width: 18, height: 18 }}
                             />
                           </td>
                         );
@@ -408,6 +409,10 @@ export default function AttendanceMark() {
                 })}
               </tbody>
             </table>
+
+            <div className="muted" style={{ marginTop: 8 }}>
+              Tip: On mobile, scroll horizontally to see all session columns.
+            </div>
           </div>
         )}
       </Card>
