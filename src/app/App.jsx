@@ -5,7 +5,9 @@ import Students from "../pages/Students.jsx";
 import StudentNew from "../pages/StudentNew.jsx";
 import Courses from "../pages/Courses.jsx";
 import Reports from "../pages/Reports.jsx";
-
+import Subjects from "../pages/Subjects.jsx";
+import Grades from "../pages/Grades.jsx";
+import Teachers from "../pages/Teachers.jsx";
 
 export default function App() {
   return (
@@ -15,8 +17,11 @@ export default function App() {
         <Route path="/students" element={<Students />} />
         <Route path="/students/new" element={<StudentNew />} />
         <Route path="/courses" element={<Courses />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/subjects" element={<Subjects />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/grades" element={<Grades />} />
+        <Route path="/teachers" element={<Teachers />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );
