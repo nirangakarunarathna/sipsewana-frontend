@@ -10,13 +10,13 @@ export default function Layout() {
         <Link to="/" className="brand">Institute Manager</Link>
         <nav className="nav">
           <NavLink to="/" className={navItem}>Dashboard</NavLink>
-          <NavLink to="/students" className={navItem}>Students</NavLink>
+          <NavLink to="/studentPayments" className={navItem}>Students Payments</NavLink>
           <NavLink to="/students/new" className={navItem}>Register Student</NavLink>
-          <NavLink to="/courses" className={navItem}>Courses</NavLink>
-          <NavLink to="/reports" className={navItem}>Reports</NavLink>
+          <NavLink to="/classes" className={navItem}>Classes</NavLink>
           <NavLink to="/subjects" className={navItem}>Subjects</NavLink>
           <NavLink to="/grades" className={navItem}>Grades</NavLink>
           <NavLink to="/teachers" className={navItem}>Teachers</NavLink>
+          <NavLink to="/reports" className={navItem}>Reports</NavLink>
         </nav>
       </header>
 
