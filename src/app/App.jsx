@@ -9,6 +9,8 @@ import Subjects from "../pages/Subjects.jsx";
 import Grades from "../pages/Grades.jsx";
 import Teachers from "../pages/Teachers.jsx";
 import StudentClasses from "../pages/StudentClasses.jsx";
+import ClassSessions from "../pages/ClassSessions.jsx";
+import AttendanceMark from "../pages/AttendanceMark.jsx";
 
 export default function App() {
   return (
@@ -23,6 +25,8 @@ export default function App() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/grades" element={<Grades />} />
         <Route path="/teachers" element={<Teachers />} />
+        <Route path="/ClassSessions" element={<ClassSessions />} />
+        <Route path="/Attendance" element={<AttendanceMark />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
