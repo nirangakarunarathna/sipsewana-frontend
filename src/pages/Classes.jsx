@@ -46,6 +46,7 @@ export default function Classes() {
   const [teacherId, setTeacherId] = useState("");
   const [name, setName] = useState("");
   const [fee, setFee] = useState("");
+  const [institutePercentage, setInstitutePercentage] = useState("25"); // ✅ new
 
   // list
   const [classes, setClasses] = useState([]);
@@ -58,8 +59,15 @@ export default function Classes() {
   const [successMsg, setSuccessMsg] = useState("");
 
   const canSubmit = useMemo(() => {
-    return gradeId && subjectId && teacherId && name.trim() && String(fee).trim() !== "";
-  }, [gradeId, subjectId, teacherId, name, fee]);
+    return (
+      gradeId &&
+      subjectId &&
+      teacherId &&
+      name.trim() &&
+      String(fee).trim() !== "" &&
+      String(institutePercentage).trim() !== ""
+    );
+  }, [gradeId, subjectId, teacherId, name, fee, institutePercentage]);
 
   async function loadRefs() {
     setLoadingRefs(true);
@@ -107,6 +115,7 @@ export default function Classes() {
   useEffect(() => {
     loadRefs();
     loadClasses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredClasses = useMemo(() => {
@@ -118,13 +127,24 @@ export default function Classes() {
       const g = (c.grade?.name || c.gradeName || "").toLowerCase();
       const s = (c.subject?.name || c.subjectName || "").toLowerCase();
       const t = (c.teacher?.fullName || c.teacherName || "").toLowerCase();
-      return n.includes(q) || g.includes(q) || s.includes(q) || t.includes(q);
+
+      const p = String(
+        c.institutePercentage ?? c.institute_percentage ?? c.institute_percent ?? ""
+      ).toLowerCase();
+
+      return n.includes(q) || g.includes(q) || s.includes(q) || t.includes(q) || p.includes(q);
     });
   }, [classes, search]);
 
   async function onCreateClass(e) {
     e.preventDefault();
     if (!canSubmit) return;
+
+    const perc = Number(institutePercentage);
+    if (Number.isNaN(perc) || perc < 0 || perc > 100) {
+      setErrorMsg("Institute Percentage must be between 0 and 100.");
+      return;
+    }
 
     setSubmitting(true);
     setErrorMsg("");
@@ -137,6 +157,7 @@ export default function Classes() {
         teacherId: Number(teacherId),
         name: name.trim(),
         fee: Number(fee),
+        institutePercentage: perc, // ✅ send to backend
       };
 
       await apiFetch("/classes", {
@@ -147,6 +168,7 @@ export default function Classes() {
       setSuccessMsg("Class registered successfully.");
       setName("");
       setFee("");
+      setInstitutePercentage("25"); // reset default
       await loadClasses();
     } catch (e) {
       setErrorMsg(e.message || "Failed to register class");
@@ -244,7 +266,11 @@ export default function Classes() {
           {!teachers.length ? <div className="muted">Add teachers first.</div> : null}
 
           <label className="label">Class Name</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Grade 2 / Dancing" />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Grade 2 / English"
+          />
 
           <label className="label">Fee</label>
           <Input
@@ -253,6 +279,16 @@ export default function Classes() {
             placeholder="1200"
             inputMode="numeric"
           />
+
+          {/* ✅ Institute Percentage */}
+          <label className="label">Institute Percentage (%)</label>
+          <Input
+            value={institutePercentage}
+            onChange={(e) => setInstitutePercentage(e.target.value)}
+            placeholder="25"
+            inputMode="numeric"
+          />
+          <div className="muted">0 to 100 (Example: 25 means 25%)</div>
 
           <Button type="submit" disabled={!canSubmit || submitting || loadingRefs}>
             {submitting ? "Saving..." : "Register Class"}
@@ -285,14 +321,16 @@ export default function Classes() {
                   <th>Subject</th>
                   <th>Teacher</th>
                   <th>Fee</th>
+                  <th>Institute %</th>
                   <th>Status</th>
                   <th style={{ width: 260 }}>Actions</th>
                 </tr>
               </thead>
+
               <tbody>
                 {filteredClasses.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="muted">
+                    <td colSpan={8} className="muted">
                       {loadingList ? "Loading..." : "No classes found."}
                     </td>
                   </tr>
@@ -304,6 +342,12 @@ export default function Classes() {
                     const subjectName = c.subject?.name ?? c.subjectName ?? "-";
                     const teacherName = c.teacher?.fullName ?? c.teacherName ?? c.teacher?.name ?? "-";
 
+                    const instPerc =
+                      c.institutePercentage ??
+                      c.institute_percentage ??
+                      c.institute_percent ??
+                      25;
+
                     return (
                       <tr key={c.id}>
                         <td>{c.name}</td>
@@ -311,6 +355,7 @@ export default function Classes() {
                         <td>{subjectName}</td>
                         <td>{teacherName}</td>
                         <td>{c.fee ?? "-"}</td>
+                        <td>{Number(instPerc)}%</td>
                         <td>
                           <span className={isActive ? "badge badgeOk" : "badge badgeOff"}>
                             {isActive ? "Active" : "Inactive"}
@@ -318,7 +363,6 @@ export default function Classes() {
                         </td>
                         <td>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {/* If you don't have status endpoint, remove this button */}
                             <Button type="button" onClick={() => toggleActive(c)}>
                               {isActive ? "Deactivate" : "Activate"}
                             </Button>
@@ -336,7 +380,7 @@ export default function Classes() {
           </div>
 
           <div className="muted">
-            Dropdowns load from Grades / Subjects / Teachers. Register sends IDs (gradeId, subjectId, teacherId) exactly like Postman.
+            Dropdowns load from Grades / Subjects / Teachers. Register sends IDs + institutePercentage.
           </div>
         </div>
       </Card>

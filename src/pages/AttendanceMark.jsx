@@ -39,15 +39,42 @@ function ymNow() {
 }
 
 function fmtDateShort(d) {
-  // YYYY-MM-DD -> DD/MM
+  // YYYY-MM-DD -> MM - DD
   if (!d) return "";
-  const [, m, day] = d.split("-");
+  const [, m, day] = String(d).split("-");
   return `${m} - ${day}`;
 }
 
 function safeTime(t) {
-  // "08:00:00" -> "08:00"
   return t ? String(t).slice(0, 5) : "";
+}
+
+function getStudentId(st) {
+  return String(st?.studentId ?? st?.student_id ?? st?.id ?? st?.StudentID ?? "");
+}
+
+function getStudentName(st, sid) {
+  const fullName =
+    st?.student?.fullName ??
+    st?.student?.name ??
+    st?.fullName ??
+    st?.name ??
+    st?.studentName ??
+    st?.StudentName ??
+    "";
+  return `${sid} - ${fullName || "Unknown"}`;
+}
+
+function getStudentMobileLine(st, sid) {
+  const mobile =
+    st?.student?.studentMobile ??
+    st?.student?.mobile ??
+    st?.mobile ??
+    st?.studentMobile ??
+    "";
+  const address = st?.student?.address ?? st?.address ?? "";
+  const line = [mobile, address].filter(Boolean).join(" / ");
+  return line || `ID: ${sid}`;
 }
 
 export default function AttendanceMarkTable() {
@@ -57,9 +84,12 @@ export default function AttendanceMarkTable() {
   const [yearMonth, setYearMonth] = useState(ymNow());
 
   // loaded
-  const [sessions, setSessions] = useState([]); // {id, session_date, start_time, end_time}
-  const [students, setStudents] = useState([]); // from student-classes endpoint
+  const [sessions, setSessions] = useState([]);
+  const [students, setStudents] = useState([]);
   const [grid, setGrid] = useState({}); // { [studentId]: { [sessionId]: boolean } }
+
+  // payment
+  const [payments, setPayments] = useState({}); // { [studentId]: { paid: boolean, amount: number } }
 
   // states
   const [loadingRefs, setLoadingRefs] = useState(false);
@@ -88,7 +118,7 @@ export default function AttendanceMarkTable() {
   }
 
   // ----------------------------
-  // Load sessions + students + attendance for selected class & month
+  // Load sessions + students + attendance + payments
   // ----------------------------
   async function loadAttendanceGrid(selectedClassId, selectedYearMonth) {
     if (!selectedClassId || !selectedYearMonth) return;
@@ -98,30 +128,30 @@ export default function AttendanceMarkTable() {
     setSuccessMsg("");
 
     try {
-      const [sessRes, stuRes, attRes] = await Promise.all([
+      const [sessRes, stuRes, attRes, payRes] = await Promise.all([
         apiFetch(`/class-sessions?classId=${selectedClassId}&yearMonth=${selectedYearMonth}`),
         apiFetch(`/student-classes?classId=${selectedClassId}`),
         apiFetch(`/student-attendances?classId=${selectedClassId}&yearMonth=${selectedYearMonth}`),
+        apiFetch(`/student-payments?classId=${selectedClassId}&yearMonth=${selectedYearMonth}`),
       ]);
 
       const sessList = Array.isArray(sessRes) ? sessRes : sessRes?.data ?? [];
       const stuList = Array.isArray(stuRes) ? stuRes : stuRes?.data ?? [];
       const attList = Array.isArray(attRes) ? attRes : attRes?.data ?? [];
+      const payList = Array.isArray(payRes) ? payRes : payRes?.data ?? [];
 
-      // Optional sort: by session_date then start_time
       sessList.sort((a, b) => {
         const ad = String(a.session_date || "").localeCompare(String(b.session_date || ""));
         if (ad !== 0) return ad;
         return String(a.start_time || "").localeCompare(String(b.start_time || ""));
       });
 
-      // Optional sort: by name
       stuList.sort((a, b) => {
         const an = String(
-          a.fullName ?? a.name ?? a.studentName ?? a.StudentName ?? ""
+          a?.student?.fullName ?? a.fullName ?? a.name ?? a.studentName ?? a.StudentName ?? ""
         ).toLowerCase();
         const bn = String(
-          b.fullName ?? b.name ?? b.studentName ?? b.StudentName ?? ""
+          b?.student?.fullName ?? b.fullName ?? b.name ?? b.studentName ?? b.StudentName ?? ""
         ).toLowerCase();
         return an.localeCompare(bn);
       });
@@ -129,31 +159,45 @@ export default function AttendanceMarkTable() {
       setSessions(sessList);
       setStudents(stuList);
 
-      // Build grid (default false)
-      const next = {};
+      // Build attendance grid
+      const nextGrid = {};
       for (const st of stuList) {
-        const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
-        next[sid] = {};
+        const sid = getStudentId(st);
+        nextGrid[sid] = {};
         for (const ses of sessList) {
-          next[sid][String(ses.id)] = false;
+          nextGrid[sid][String(ses.id)] = false;
         }
       }
 
-      // Apply existing attendance
       for (const a of attList) {
         const sid = String(a.student_id ?? a.studentId);
         const sesId = String(a.session_id ?? a.sessionId);
-        if (next[sid] && Object.prototype.hasOwnProperty.call(next[sid], sesId)) {
-          next[sid][sesId] = (a.status ?? "A") === "P";
+        if (nextGrid[sid] && Object.prototype.hasOwnProperty.call(nextGrid[sid], sesId)) {
+          nextGrid[sid][sesId] = (a.status ?? "A") === "P";
         }
       }
+      setGrid(nextGrid);
 
-      setGrid(next);
+      // Payments map
+      const nextPay = {};
+      for (const st of stuList) {
+        const sid = getStudentId(st);
+        nextPay[sid] = { paid: false, amount: 0 };
+      }
+      for (const p of payList) {
+        const sid = String(p.student_id ?? p.studentId);
+        nextPay[sid] = {
+          paid: !!(p.paid ?? p.isPaid ?? p.status === "PAID"),
+          amount: Number(p.amount ?? 0),
+        };
+      }
+      setPayments(nextPay);
     } catch (e) {
-      setErrorMsg(e.message || "Failed to load attendance");
+      setErrorMsg(e.message || "Failed to load attendance/payments");
       setSessions([]);
       setStudents([]);
       setGrid({});
+      setPayments({});
     } finally {
       setLoadingGrid(false);
     }
@@ -161,17 +205,50 @@ export default function AttendanceMarkTable() {
 
   useEffect(() => {
     loadClasses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (classId && yearMonth) loadAttendanceGrid(classId, yearMonth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId, yearMonth]);
 
   const hasStudents = students.length > 0;
   const hasSessions = sessions.length > 0;
 
   // ----------------------------
-  // Toggle single cell
+  // Summary
+  // ----------------------------
+  const summary = useMemo(() => {
+    const totalStudents = students.length;
+
+    let paidCount = 0;
+    let totalPaidAmount = 0;
+
+    for (const st of students) {
+      const sid = getStudentId(st);
+      const row = payments?.[sid];
+      if (!row) continue;
+
+      if (row.paid) {
+        paidCount += 1;
+        totalPaidAmount += Number(row.amount ?? 0);
+      }
+    }
+
+    const paidPercent =
+      totalStudents > 0 ? Math.round((paidCount / totalStudents) * 100) : 0;
+
+    return {
+      totalStudents,
+      paidCount,
+      paidPercent,
+      totalPaidAmount,
+    };
+  }, [students, payments]);
+
+  // ----------------------------
+  // Toggle attendance cell
   // ----------------------------
   function toggleCell(studentId, sessionId) {
     setGrid((prev) => {
@@ -189,23 +266,48 @@ export default function AttendanceMarkTable() {
     });
   }
 
-  // ----------------------------
-  // Column actions: mark all present/absent for a session
-  // ----------------------------
   function setColumn(sessionId, value) {
     setGrid((prev) => {
       const sesId = String(sessionId);
       const next = { ...prev };
       for (const st of students) {
-        const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
+        const sid = getStudentId(st);
         next[sid] = { ...(next[sid] || {}), [sesId]: value };
       }
       return next;
     });
   }
 
+  // Payment helpers
+  function setPaid(studentId, paid) {
+    const sid = String(studentId);
+    setPayments((prev) => ({
+      ...prev,
+      [sid]: { ...(prev[sid] || { amount: 0 }), paid: !!paid },
+    }));
+  }
+
+  function setAmount(studentId, amount) {
+    const sid = String(studentId);
+    setPayments((prev) => ({
+      ...prev,
+      [sid]: { ...(prev[sid] || { paid: false }), amount: Number(amount || 0) },
+    }));
+  }
+
+  function setAllPaid(value) {
+    setPayments((prev) => {
+      const next = { ...prev };
+      for (const st of students) {
+        const sid = getStudentId(st);
+        next[sid] = { ...(next[sid] || { amount: 0 }), paid: value };
+      }
+      return next;
+    });
+  }
+
   // ----------------------------
-  // Save bulk
+  // Save bulk: attendance + payments
   // ----------------------------
   async function saveAll() {
     if (!classId || !yearMonth) return;
@@ -220,14 +322,14 @@ export default function AttendanceMarkTable() {
     setSuccessMsg("");
 
     try {
-      const records = [];
+      const attendanceRecords = [];
       for (const st of students) {
-        const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
+        const sid = getStudentId(st);
         for (const ses of sessions) {
           const sesId = String(ses.id);
           const present = !!grid?.[sid]?.[sesId];
 
-          records.push({
+          attendanceRecords.push({
             sessionId: Number(sesId),
             studentId: Number(sid),
             status: present ? "P" : "A",
@@ -239,25 +341,43 @@ export default function AttendanceMarkTable() {
         }
       }
 
-      await apiFetch("/student-attendances/bulk", {
-        method: "POST",
-        body: JSON.stringify({
-          classId: Number(classId),
-          yearMonth,
-          records,
-        }),
+      const paymentRecords = students.map((st) => {
+        const sid = getStudentId(st);
+        return {
+          studentId: Number(sid),
+          paid: !!payments?.[sid]?.paid,
+          amount: Number(payments?.[sid]?.amount ?? 0),
+        };
       });
 
-      setSuccessMsg("Attendance saved successfully.");
+      await Promise.all([
+        apiFetch("/student-attendances/bulk", {
+          method: "POST",
+          body: JSON.stringify({
+            classId: Number(classId),
+            yearMonth,
+            records: attendanceRecords,
+          }),
+        }),
+        apiFetch("/student-payments/bulk", {
+          method: "POST",
+          body: JSON.stringify({
+            classId: Number(classId),
+            yearMonth,
+            payments: paymentRecords,
+          }),
+        }),
+      ]);
+
+      setSuccessMsg("Attendance + payments saved successfully.");
       await loadAttendanceGrid(classId, yearMonth);
     } catch (e) {
-      setErrorMsg(e.message || "Failed to save attendance");
+      setErrorMsg(e.message || "Failed to save");
     } finally {
       setSaving(false);
     }
   }
 
-  // Table styles to keep Student column sticky and allow horizontal scroll
   const stickyThTd = {
     position: "sticky",
     left: 0,
@@ -306,9 +426,64 @@ export default function AttendanceMarkTable() {
         </div>
 
         <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button type="button" onClick={saveAll} disabled={saving || loadingGrid || !hasStudents || !hasSessions}>
+          <Button
+            type="button"
+            onClick={saveAll}
+            disabled={saving || loadingGrid || !hasStudents || !hasSessions}
+          >
             {saving ? "Saving..." : "Save All"}
           </Button>
+
+          <button
+            type="button"
+            className="linkBtn"
+            onClick={() => setAllPaid(true)}
+            disabled={saving || loadingGrid || !hasStudents}
+            title="Mark all students paid"
+          >
+            All Paid
+          </button>
+          <button
+            type="button"
+            className="linkBtn"
+            onClick={() => setAllPaid(false)}
+            disabled={saving || loadingGrid || !hasStudents}
+            title="Mark all students unpaid"
+          >
+            All Unpaid
+          </button>
+        </div>
+
+        {/* Summary */}
+        <div
+          style={{
+            marginTop: 12,
+            display: "grid",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gap: 12,
+          }}
+        >
+          <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 14, padding: 12, background: "#fff" }}>
+            <div className="muted" style={{ fontSize: 12 }}>Total Students</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{summary.totalStudents}</div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 14, padding: 12, background: "#fff" }}>
+            <div className="muted" style={{ fontSize: 12 }}>Paid Students</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{summary.paidCount}</div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 14, padding: 12, background: "#fff" }}>
+            <div className="muted" style={{ fontSize: 12 }}>Paid Percentage</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{summary.paidPercent}%</div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 14, padding: 12, background: "#fff" }}>
+            <div className="muted" style={{ fontSize: 12 }}>Total Paid Amount</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {summary.totalPaidAmount.toLocaleString()}
+            </div>
+          </div>
         </div>
 
         {!hasStudents ? (
@@ -321,37 +496,25 @@ export default function AttendanceMarkTable() {
           </div>
         ) : (
           <div className="tableWrap" style={{ marginTop: 12, overflowX: "auto" }}>
-            <table className="table" style={{ minWidth: 900 }}>
+            <table className="table" style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
-                  <th style={{ ...stickyThTd, minWidth: 260 }}>
-                    Student (Name / Mobile)
-                  </th>
+                  <th style={{ ...stickyThTd, minWidth: 260 }}>Student (Name / Mobile)</th>
+                  <th style={{ minWidth: 90, textAlign: "center" }}>Paid</th>
+                  <th style={{ minWidth: 120, textAlign: "center" }}>Amount</th>
 
                   {sessions.map((ses) => (
                     <th key={ses.id} style={{ minWidth: 110, textAlign: "center" }}>
                       <div style={{ display: "grid", gap: 6, justifyItems: "center" }}>
-                        <div style={{ fontWeight: 700 }}>
-                          {fmtDateShort(ses.session_date)}
-                        </div>
+                        <div style={{ fontWeight: 700 }}>{fmtDateShort(ses.session_date)}</div>
                         <div className="muted" style={{ fontSize: 12 }}>
                           {safeTime(ses.start_time)} - {safeTime(ses.end_time)}
                         </div>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <button
-                            type="button"
-                            className="linkBtn"
-                            onClick={() => setColumn(ses.id, true)}
-                            title="Mark all present"
-                          >
+                          <button type="button" className="linkBtn" onClick={() => setColumn(ses.id, true)}>
                             All P
                           </button>
-                          <button
-                            type="button"
-                            className="linkBtn"
-                            onClick={() => setColumn(ses.id, false)}
-                            title="Mark all absent"
-                          >
+                          <button type="button" className="linkBtn" onClick={() => setColumn(ses.id, false)}>
                             All A
                           </button>
                         </div>
@@ -363,22 +526,40 @@ export default function AttendanceMarkTable() {
 
               <tbody>
                 {students.map((st) => {
-                  const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
-                  const name =
-                    `${sid} - ${st.student.fullName}`;
+                  const sid = getStudentId(st);
+                  const name = getStudentName(st, sid);
+                  const mobileLine = getStudentMobileLine(st, sid);
 
-                  const mobile =
-                    `${st.student.studentMobile} / ${st.student.address}`;
+                  const paid = !!payments?.[sid]?.paid;
+                  const amount = payments?.[sid]?.amount ?? 0;
 
                   return (
                     <tr key={sid}>
                       <td style={{ ...stickyThTd, zIndex: 1 }}>
                         <div style={{ display: "grid" }}>
                           <span style={{ fontWeight: 700 }}>{name}</span>
-                          <span className="muted" style={{ fontSize: 12 }}>
-                            {mobile ? mobile : `ID: ${sid}`}
-                          </span>
+                          <span className="muted" style={{ fontSize: 12 }}>{mobileLine}</span>
                         </div>
+                      </td>
+
+                      <td style={{ textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={paid}
+                          onChange={(e) => setPaid(sid, e.target.checked)}
+                          style={{ width: 18, height: 18 }}
+                        />
+                      </td>
+
+                      <td style={{ textAlign: "center" }}>
+                        <input
+                          type="number"
+                          className="input"
+                          style={{ width: 95, textAlign: "right" }}
+                          value={amount}
+                          min={0}
+                          onChange={(e) => setAmount(sid, e.target.value)}
+                        />
                       </td>
 
                       {sessions.map((ses) => {
