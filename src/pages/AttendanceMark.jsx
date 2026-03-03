@@ -42,7 +42,7 @@ function fmtDateShort(d) {
   // YYYY-MM-DD -> DD/MM
   if (!d) return "";
   const [, m, day] = d.split("-");
-  return `${day}/${m}`;
+  return `${m} - ${day}`;
 }
 
 function safeTime(t) {
@@ -239,7 +239,7 @@ export default function AttendanceMarkTable() {
         }
       }
 
-      await apiFetch("/attendance/bulk", {
+      await apiFetch("/student-attendances/bulk", {
         method: "POST",
         body: JSON.stringify({
           classId: Number(classId),
@@ -365,18 +365,10 @@ export default function AttendanceMarkTable() {
                 {students.map((st) => {
                   const sid = String(st.studentId ?? st.student_id ?? st.id ?? st.StudentID);
                   const name =
-                    st.fullName ??
-                    st.name ??
-                    st.studentName ??
-                    st.StudentName ??
-                    `Student #${sid}`;
+                    `${sid} - ${st.student.fullName}`;
 
                   const mobile =
-                    st.studentMobile ??
-                    st.mobile ??
-                    st.phone ??
-                    st.StudentMobile ??
-                    "";
+                    `${st.student.studentMobile} / ${st.student.address}`;
 
                   return (
                     <tr key={sid}>
