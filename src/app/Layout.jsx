@@ -6,6 +6,8 @@ const MAIN = [
   { key: "classes", label: "Classes", to: "/classes" },
   { key: "attendance", label: "Attendance & Payments", to: "/Attendance" },
   { key: "reports", label: "Reports", to: "/reports" },
+  { key: "bill", label: "Bill Generate", to: "/bill" },
+
 ];
 
 const SUB = {
@@ -23,6 +25,7 @@ const SUB = {
   ],
   attendance: [{ label: "Mark", to: "/Attendance" }],
   reports: [{ label: "Summary", to: "/reports" }],
+  bill: [{ label: "Generate", to: "/bill" }],
 };
 
 function mainKeyFromPath(pathname) {
@@ -31,6 +34,7 @@ function mainKeyFromPath(pathname) {
   if (pathname.startsWith("/classes") || pathname.startsWith("/subjects") || pathname.startsWith("/grades") || pathname.startsWith("/teachers") || pathname.startsWith("/classSessions")) return "classes";
   if (pathname.toLowerCase().startsWith("/attendance")) return "attendance";
   if (pathname.startsWith("/reports")) return "reports";
+  if (pathname.startsWith("/bill")) return "bill";
   return "dash";
 }
 

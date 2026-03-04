@@ -16,6 +16,7 @@ import AttendanceMark from "../pages/AttendanceMark.jsx";
 import Login from "../pages/Login.jsx";
 
 import ProtectedRoute from "../routes/ProtectedRoute.jsx";
+import BillGenerate from "../pages/BillGenerate.jsx";
 
 export default function App() {
   const token = localStorage.getItem("token");
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/teachers" element={<Teachers />} />
             <Route path="/classSessions" element={<ClassSessions />} />
             <Route path="/attendance" element={<AttendanceMark />} />
+            <Route path="/bill" element={<BillGenerate />} />
           </Route>
         </Route>
 
