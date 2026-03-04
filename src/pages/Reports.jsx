@@ -37,6 +37,10 @@ function ymNow() {
 function yearNow() {
   return String(new Date().getFullYear());
 }
+function percentFromBackendValue(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? `${Math.round(n)}%` : "0%";
+}
 function percent(paid, total) {
   if (!total) return "0%";
   return `${Math.round((paid / total) * 100)}%`;
@@ -52,7 +56,11 @@ export default function Reports() {
   const [yearMonth, setYearMonth] = useState(ymNow());
 
   // backend response:
-  // { scope, period, rows: [...], totals: {...} }
+  // {
+  //   scope, period,
+  //   rows: [{ subjectId, subjectName, totalStudents, paidCount, freeCount, notPaidCount, paidPct, totalIncome, instituteIncome }],
+  //   totals: { totalStudents, paidCount, freeCount, notPaidCount, paidPct, totalIncome, instituteIncome }
+  // }
   const [summary, setSummary] = useState({
     scope: "month",
     period: ymNow(),
@@ -60,6 +68,7 @@ export default function Reports() {
     totals: {
       totalStudents: 0,
       paidCount: 0,
+      freeCount: 0,
       notPaidCount: 0,
       totalIncome: 0,
       instituteIncome: 0,
@@ -84,7 +93,6 @@ export default function Reports() {
 
       const res = await apiFetch(url);
 
-      // ✅ IMPORTANT: res is an object, not an array
       const rows = Array.isArray(res?.rows) ? res.rows : [];
       const totals = res?.totals || {};
 
@@ -96,18 +104,20 @@ export default function Reports() {
           subjectName: r.subjectName,
           totalStudents: asNum(r.totalStudents),
           paidCount: asNum(r.paidCount),
+          freeCount: asNum(r.freeCount),
           notPaidCount: asNum(r.notPaidCount),
           totalIncome: asNum(r.totalIncome),
           instituteIncome: asNum(r.instituteIncome),
-          paidPct: asNum(r.paidPct),
+          paidPct: asNum(r.paidPct), // ✅ from backend (already excludes free in denominator)
         })),
         totals: {
           totalStudents: asNum(totals.totalStudents),
           paidCount: asNum(totals.paidCount),
+          freeCount: asNum(totals.freeCount),
           notPaidCount: asNum(totals.notPaidCount),
           totalIncome: asNum(totals.totalIncome),
           instituteIncome: asNum(totals.instituteIncome),
-          paidPct: asNum(totals.paidPct),
+          paidPct: asNum(totals.paidPct), // ✅ from backend
         },
       });
     } catch (e) {
@@ -118,6 +128,7 @@ export default function Reports() {
         totals: {
           totalStudents: 0,
           paidCount: 0,
+          freeCount: 0,
           notPaidCount: 0,
           totalIncome: 0,
           instituteIncome: 0,
@@ -136,9 +147,12 @@ export default function Reports() {
 
   const titleScope = mode === "year" ? year : yearMonth;
 
-  // If backend already returns paidPct, you can use it.
-  // Otherwise calculate:
+  // ✅ Use backend-paidPct directly (already correct)
   const totalsPaidPct = useMemo(() => {
+    if (Number.isFinite(summary?.totals?.paidPct)) {
+      return percentFromBackendValue(summary.totals.paidPct);
+    }
+    // fallback (shouldn't be needed)
     return percent(summary.totals.paidCount, summary.totals.totalStudents);
   }, [summary.totals]);
 
@@ -201,7 +215,7 @@ export default function Reports() {
           style={{
             marginTop: 12,
             display: "grid",
-            gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
             gap: 12,
           }}
         >
@@ -218,6 +232,22 @@ export default function Reports() {
             </div>
             <div style={{ fontSize: 22, fontWeight: 800 }}>
               {summary.totals.totalStudents}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 14,
+              padding: 12,
+              background: "#fff",
+            }}
+          >
+            <div className="muted" style={{ fontSize: 12 }}>
+              Free
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {summary.totals.freeCount}
             </div>
           </div>
 
@@ -289,11 +319,12 @@ export default function Reports() {
 
       <Card title={`Report Table (${titleScope})`}>
         <div className="tableWrap" style={{ overflowX: "auto" }}>
-          <table className="table" style={{ minWidth: 950 }}>
+          <table className="table" style={{ minWidth: 1050 }}>
             <thead>
               <tr>
                 <th>Subject</th>
                 <th>Total Students</th>
+                <th>Free</th>
                 <th>Paid</th>
                 <th>Not Paid</th>
                 <th>Paid %</th>
@@ -307,9 +338,11 @@ export default function Reports() {
                 <tr key={r.subjectId ?? r.subjectName}>
                   <td>{r.subjectName}</td>
                   <td>{r.totalStudents}</td>
+                  <td>{r.freeCount}</td>
                   <td>{r.paidCount}</td>
                   <td>{r.notPaidCount}</td>
-                  <td>{percent(r.paidCount, r.totalStudents)}</td>
+                  {/* ✅ use backend paidPct */}
+                  <td>{percentFromBackendValue(r.paidPct)}</td>
                   <td>{Math.round(r.totalIncome).toLocaleString()}</td>
                   <td>{Math.round(r.instituteIncome).toLocaleString()}</td>
                 </tr>
@@ -318,6 +351,7 @@ export default function Reports() {
               <tr style={{ fontWeight: 800 }}>
                 <td>TOTAL (All Subjects)</td>
                 <td>{summary.totals.totalStudents}</td>
+                <td>{summary.totals.freeCount}</td>
                 <td>{summary.totals.paidCount}</td>
                 <td>{summary.totals.notPaidCount}</td>
                 <td>{totalsPaidPct}</td>
@@ -329,7 +363,7 @@ export default function Reports() {
 
               {!summary.rows.length ? (
                 <tr>
-                  <td colSpan="7" className="muted">
+                  <td colSpan="8" className="muted">
                     No data found for selected {mode === "year" ? "year" : "month"}.
                   </td>
                 </tr>
