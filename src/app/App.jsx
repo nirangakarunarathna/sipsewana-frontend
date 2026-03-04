@@ -2,7 +2,6 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./Layout.jsx";
 
 import Dashboard from "../pages/Dashboard.jsx";
-import StudentPayments from "../pages/StudentPayments.jsx";
 import StudentNew from "../pages/StudentNew.jsx";
 import Classes from "../pages/Classes.jsx";
 import Reports from "../pages/Reports.jsx";
@@ -26,7 +25,6 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/studentPayments" element={<StudentPayments />} />
           <Route path="/studentClasses" element={<StudentClasses />} />
           <Route path="/students/new" element={<StudentNew />} />
           <Route path="/classes" element={<Classes />} />
