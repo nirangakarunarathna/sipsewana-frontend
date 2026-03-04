@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
@@ -39,7 +39,6 @@ function ymNow() {
 }
 
 function fmtDateShort(d) {
-  // YYYY-MM-DD -> MM - DD
   if (!d) return "";
   const [, m, day] = String(d).split("-");
   return `${m} - ${day}`;
@@ -78,13 +77,19 @@ function getStudentMobileLine(st, sid) {
 }
 
 function getClassInstitutePercentage(cls) {
-  // supports different naming
   const v =
     cls?.institutePercentage ??
     cls?.institute_percentage ??
     cls?.institute_percent ??
     cls?.institute_share ??
     0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getClassFee(cls) {
+  // supports many naming variants + string decimals like "1000" / "1000.00"
+  const v = cls?.fee ?? cls?.class_fee ?? cls?.classFee ?? cls?.monthly_fee ?? 0;
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
@@ -110,6 +115,25 @@ export default function AttendanceMarkTable() {
 
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // track if user manually edited amount per student (so we don't override)
+  const amountTouchedRef = useRef({}); // { [studentId]: true }
+
+  // ----------------------------
+  // Selected class
+  // ----------------------------
+  const selectedClass = useMemo(() => {
+    const idNum = Number(classId);
+    return classes.find((c) => Number(c.id) === idNum) || null;
+  }, [classes, classId]);
+
+  const institutePercentage = useMemo(() => {
+    return getClassInstitutePercentage(selectedClass);
+  }, [selectedClass]);
+
+  const classFee = useMemo(() => {
+    return getClassFee(selectedClass);
+  }, [selectedClass]);
 
   // ----------------------------
   // Load classes
@@ -176,9 +200,7 @@ export default function AttendanceMarkTable() {
       for (const st of stuList) {
         const sid = getStudentId(st);
         nextGrid[sid] = {};
-        for (const ses of sessList) {
-          nextGrid[sid][String(ses.id)] = false;
-        }
+        for (const ses of sessList) nextGrid[sid][String(ses.id)] = false;
       }
 
       for (const a of attList) {
@@ -190,7 +212,7 @@ export default function AttendanceMarkTable() {
       }
       setGrid(nextGrid);
 
-      // Payments map
+      // Payments map (initial)
       const nextPay = {};
       for (const st of stuList) {
         const sid = getStudentId(st);
@@ -199,17 +221,21 @@ export default function AttendanceMarkTable() {
       for (const p of payList) {
         const sid = String(p.student_id ?? p.studentId);
         nextPay[sid] = {
-          paid: !!(p.paid ?? p.isPaid ?? p.status === "PAID"),
+          paid: !!(p.paid ?? p.isPaid ?? p.is_paid ?? p.status === "PAID"),
           amount: Number(p.amount ?? 0),
         };
       }
       setPayments(nextPay);
+
+      // reset "touched" when reloading grid (new month/class)
+      amountTouchedRef.current = {};
     } catch (e) {
       setErrorMsg(e.message || "Failed to load attendance/payments");
       setSessions([]);
       setStudents([]);
       setGrid({});
       setPayments({});
+      amountTouchedRef.current = {};
     } finally {
       setLoadingGrid(false);
     }
@@ -229,16 +255,43 @@ export default function AttendanceMarkTable() {
   const hasSessions = sessions.length > 0;
 
   // ----------------------------
-  // Selected class (for institute %)
+  // AUTO-BIND CLASS FEE INTO AMOUNT INPUTS
+  //
+  // Rules:
+  // - When class changes OR fee changes OR students list changes:
+  //   set amount = classFee for students who:
+  //     - don't have an amount yet (0/null/undefined)
+  //     - AND user hasn't manually edited it (touched=false)
+  // - Also, when user ticks Paid=true and amount is empty, auto-fill classFee.
   // ----------------------------
-  const selectedClass = useMemo(() => {
-    const idNum = Number(classId);
-    return classes.find((c) => Number(c.id) === idNum) || null;
-  }, [classes, classId]);
+  useEffect(() => {
+    if (!hasStudents) return;
+    if (!Number.isFinite(classFee) || classFee <= 0) return;
 
-  const institutePercentage = useMemo(() => {
-    return getClassInstitutePercentage(selectedClass);
-  }, [selectedClass]);
+    setPayments((prev) => {
+      const next = { ...(prev || {}) };
+      let changed = false;
+
+      for (const st of students) {
+        const sid = getStudentId(st);
+        const touched = !!amountTouchedRef.current[sid];
+
+        const cur = next[sid] || { paid: false, amount: 0 };
+        const curAmount = Number(cur.amount ?? 0);
+
+        // only fill if not touched and amount is empty/0
+        if (!touched && (!Number.isFinite(curAmount) || curAmount <= 0)) {
+          next[sid] = { ...cur, amount: classFee };
+          changed = true;
+        } else {
+          next[sid] = cur;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classFee, students]);
 
   // ----------------------------
   // Summary
@@ -260,8 +313,7 @@ export default function AttendanceMarkTable() {
       }
     }
 
-    const paidPercent =
-      totalStudents > 0 ? Math.round((paidCount / totalStudents) * 100) : 0;
+    const paidPercent = totalStudents > 0 ? Math.round((paidCount / totalStudents) * 100) : 0;
 
     const instituteIncome = (Number(totalPaidAmount) * Number(institutePercentage || 0)) / 100;
 
@@ -272,8 +324,9 @@ export default function AttendanceMarkTable() {
       totalPaidAmount,
       institutePercentage: Number(institutePercentage || 0),
       instituteIncome,
+      classFee,
     };
-  }, [students, payments, institutePercentage]);
+  }, [students, payments, institutePercentage, classFee]);
 
   // ----------------------------
   // Toggle attendance cell
@@ -309,26 +362,50 @@ export default function AttendanceMarkTable() {
   // Payment helpers
   function setPaid(studentId, paid) {
     const sid = String(studentId);
-    setPayments((prev) => ({
-      ...prev,
-      [sid]: { ...(prev[sid] || { amount: 0 }), paid: !!paid },
-    }));
+
+    setPayments((prev) => {
+      const cur = prev?.[sid] || { paid: false, amount: 0 };
+      let nextAmount = Number(cur.amount ?? 0);
+
+      // if turning PAID on and amount is empty and fee exists => autofill fee
+      if (paid && (!Number.isFinite(nextAmount) || nextAmount <= 0) && classFee > 0) {
+        // don't mark as touched; it's an auto-fill
+        nextAmount = classFee;
+      }
+
+      return {
+        ...(prev || {}),
+        [sid]: { ...cur, paid: !!paid, amount: nextAmount },
+      };
+    });
   }
 
   function setAmount(studentId, amount) {
     const sid = String(studentId);
+    amountTouchedRef.current[sid] = true; // user manually edited
+
     setPayments((prev) => ({
-      ...prev,
-      [sid]: { ...(prev[sid] || { paid: false }), amount: Number(amount || 0) },
+      ...(prev || {}),
+      [sid]: { ...(prev?.[sid] || { paid: false }), amount: Number(amount || 0) },
     }));
   }
 
   function setAllPaid(value) {
     setPayments((prev) => {
-      const next = { ...prev };
+      const next = { ...(prev || {}) };
       for (const st of students) {
         const sid = getStudentId(st);
-        next[sid] = { ...(next[sid] || { amount: 0 }), paid: value };
+        const cur = next[sid] || { paid: false, amount: 0 };
+
+        // if marking paid=true and amount empty => autofill fee (unless touched)
+        let nextAmount = Number(cur.amount ?? 0);
+        const touched = !!amountTouchedRef.current[sid];
+
+        if (value && !touched && (!Number.isFinite(nextAmount) || nextAmount <= 0) && classFee > 0) {
+          nextAmount = classFee;
+        }
+
+        next[sid] = { ...cur, paid: value, amount: nextAmount };
       }
       return next;
     });
@@ -441,6 +518,10 @@ export default function AttendanceMarkTable() {
                 </option>
               ))}
             </select>
+
+            <div className="muted" style={{ marginTop: 6 }}>
+              Fee: <b>{summary.classFee ? summary.classFee.toLocaleString() : "—"}</b>
+            </div>
           </div>
 
           <div>
@@ -482,7 +563,7 @@ export default function AttendanceMarkTable() {
           </button>
         </div>
 
-        {/* Summary (includes institute %) */}
+        {/* Summary */}
         <div
           style={{
             marginTop: 12,
@@ -601,6 +682,7 @@ export default function AttendanceMarkTable() {
                           value={amount}
                           min={0}
                           onChange={(e) => setAmount(sid, e.target.value)}
+                          placeholder={classFee ? String(classFee) : "0"}
                         />
                       </td>
 
