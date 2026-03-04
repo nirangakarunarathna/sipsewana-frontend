@@ -1,7 +1,17 @@
+// utils/apiFetch.js
+import toast from "react-hot-toast";
+
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
+function redirectToLogin() {
+  // prevent infinite redirect loop
+  if (window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
+}
+
 export async function apiFetch(path, options = {}) {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("token"); // change if you use different key
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -12,11 +22,12 @@ export async function apiFetch(path, options = {}) {
     },
   });
 
-  // auto-logout on invalid token
+  // ✅ 401 handling
   if (res.status === 401) {
     localStorage.removeItem("token");
-    window.location.href = "/login";
-    return;
+    toast.error("Session expired. Please login again.");
+    redirectToLogin();
+    throw new Error("Unauthorized");
   }
 
   const text = await res.text();
@@ -31,9 +42,12 @@ export async function apiFetch(path, options = {}) {
     : null;
 
   if (!res.ok) {
-    const msg =
+    let msg =
       (data && typeof data === "object" && (data.message || data.error)) ||
       (typeof data === "string" ? data : "Request failed");
+    if (Array.isArray(msg)) msg = msg.join(", ");
+
+    toast.error(msg);
     throw new Error(msg);
   }
 

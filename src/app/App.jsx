@@ -1,4 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
+
 import Layout from "./Layout.jsx";
 
 import Dashboard from "../pages/Dashboard.jsx";
@@ -13,32 +15,70 @@ import ClassSessions from "../pages/ClassSessions.jsx";
 import AttendanceMark from "../pages/AttendanceMark.jsx";
 import Login from "../pages/Login.jsx";
 
-import ProtectedRoute from "../routes/ProtectedRoute.jsx"; // ✅ adjust path if needed
+import ProtectedRoute from "../routes/ProtectedRoute.jsx";
 
 export default function App() {
+  const token = localStorage.getItem("token");
+
   return (
-    <Routes>
-      {/* ✅ Public route */}
-      <Route path="/login" element={<Login />} />
+    <>
+      {/* ✅ Global toaster */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            borderRadius: "8px",
+            fontSize: "20px",
+            color: "#fff",
+          },
 
-      {/* ✅ Protected routes */}
-      <Route element={<ProtectedRoute />}>
-        <Route element={<Layout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/studentClasses" element={<StudentClasses />} />
-          <Route path="/students/new" element={<StudentNew />} />
-          <Route path="/classes" element={<Classes />} />
-          <Route path="/subjects" element={<Subjects />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/grades" element={<Grades />} />
-          <Route path="/teachers" element={<Teachers />} />
-          <Route path="/classSessions" element={<ClassSessions />} />
-          <Route path="/attendance" element={<AttendanceMark />} />
+          success: {
+            style: {
+              background: "#2cac5b", // green
+            },
+          },
+
+          error: {
+            style: {
+              background: "#e89090", // red
+            },
+          },
+        }}
+      />
+
+      <Routes>
+        {/* Public route */}
+        <Route path="/login" element={<Login />} />
+
+        {/* Protected routes */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Layout />}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/studentClasses" element={<StudentClasses />} />
+            <Route path="/students/new" element={<StudentNew />} />
+            <Route path="/classes" element={<Classes />} />
+            <Route path="/subjects" element={<Subjects />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/grades" element={<Grades />} />
+            <Route path="/teachers" element={<Teachers />} />
+            <Route path="/classSessions" element={<ClassSessions />} />
+            <Route path="/attendance" element={<AttendanceMark />} />
+          </Route>
         </Route>
-      </Route>
 
-      {/* ✅ Anything unknown -> go to login (or dashboard if logged in) */}
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+        {/* fallback */}
+        <Route
+          path="*"
+          element={
+            token ? (
+              <Navigate to="/" replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+      </Routes>
+    </>
   );
 }
