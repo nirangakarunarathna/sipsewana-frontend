@@ -29,24 +29,11 @@ export default function BillGenerate() {
 
   const [loading, setLoading] = useState(false);
 
-  // summary data from backend
-  // expected shape example:
-  // {
-  //   scope: "month",
-  //   period: "2026-02",
-  //   teacher: { id, fullName },
-  //   subject: { id, name } | null,
-  //   rows: [
-  //     { classId, className, institutePercentage, totalStudents, paidCount, freeCount, notPaidCount, totalIncome, instituteIncome, teacherIncome }
-  //   ],
-  //   totals: { totalStudents, paidCount, freeCount, notPaidCount, totalIncome, instituteIncome, teacherIncome }
-  // }
+  // summary from backend
   const [summary, setSummary] = useState(null);
 
   // adjustments
-  const [adjustments, setAdjustments] = useState([
-    // { type: "add" | "deduct", amount: 0, note: "" }
-  ]);
+  const [adjustments, setAdjustments] = useState([]);
 
   // PDF preview
   const [pdfUrl, setPdfUrl] = useState("");
@@ -71,7 +58,8 @@ export default function BillGenerate() {
 
       if (!teacherId && tList[0]?.id) setTeacherId(String(tList[0].id));
     } catch (e) {
-      toast.error(e.message || "Failed to load teachers/subjects");
+      // apiFetch already toast error
+      console.error(e);
     } finally {
       setLoading(false);
     }
@@ -92,7 +80,7 @@ export default function BillGenerate() {
     }
 
     setLoading(true);
-    setPdfUrl("");
+    setPdfUrl(""); // clear preview when reloading summary
     try {
       const qs = new URLSearchParams({
         teacherId: String(teacherId),
@@ -100,31 +88,34 @@ export default function BillGenerate() {
       });
       if (subjectId) qs.set("subjectId", String(subjectId));
 
-      const res = await apiFetch(`/student-payments/teacher-bill/summary?${qs.toString()}`);
+      const res = await apiFetch(
+        `/student-payments/teacher-bill/summary?${qs.toString()}`
+      );
       setSummary(res);
     } catch (e) {
       setSummary(null);
-      toast.error(e.message || "Failed to load bill summary");
+      console.error(e);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    // auto reload when selection changes (optional)
     if (teacherId && yearMonth) loadSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teacherId, yearMonth, subjectId]);
 
   // -----------------------------
-  // Adjustments helpers
+  // Adjustments
   // -----------------------------
   function addAdjustment(type) {
     setAdjustments((prev) => [...prev, { type, amount: 0, note: "" }]);
   }
 
   function updateAdjustment(i, patch) {
-    setAdjustments((prev) => prev.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
+    setAdjustments((prev) =>
+      prev.map((x, idx) => (idx === i ? { ...x, ...patch } : x))
+    );
   }
 
   function removeAdjustment(i) {
@@ -143,75 +134,91 @@ export default function BillGenerate() {
   }, [adjustments]);
 
   const finalTeacherTotal = useMemo(() => {
-    const base = asNum(summary?.totals?.teacherIncome ?? 0); // already (total - institute)
+    const base = asNum(summary?.totals?.teacherIncome ?? 0);
     return base + adjustmentTotals.net;
   }, [summary, adjustmentTotals]);
 
   // -----------------------------
   // Generate PDF (A4) + Preview
+  // ✅ Uses apiFetch (adds Authorization header automatically)
+  // ✅ Uses blob response
   // -----------------------------
   async function generatePdf() {
-    if (!teacherId || !yearMonth) {
-      toast.error("Select teacher and month.");
+  if (!teacherId || !yearMonth) {
+    toast.error("Select teacher and month.");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const payload = {
+      teacherId: Number(teacherId),
+      yearMonth,
+      subjectId: subjectId ? Number(subjectId) : null,
+      adjustments: adjustments
+        .filter((a) => asNum(a.amount) !== 0 || String(a.note || "").trim())
+        .map((a) => ({
+          type: a.type,
+          amount: asNum(a.amount),
+          note: String(a.note || "").trim(),
+        })),
+    };
+
+    const blob = await apiFetch("/student-payments/teacher-bill/pdf", {
+      method: "POST",
+      headers: { Accept: "application/pdf" },
+      body: JSON.stringify(payload),
+      responseType: "blob",
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    setPdfUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return url;
+    });
+
+    toast.success("PDF generated.");
+  } catch (e) {
+    console.error(e);
+    // apiFetch already toasts
+  } finally {
+    setLoading(false);
+  }
+}
+
+  // -----------------------------
+  // Print PDF
+  // ✅ Most reliable: open in new tab then print
+  // -----------------------------
+  function printPdf() {
+    if (!pdfUrl) return;
+
+    const w = window.open(pdfUrl, "_blank");
+    if (!w) {
+      toast.error("Popup blocked. Allow popups to print.");
       return;
     }
 
-    setLoading(true);
-    try {
-      const payload = {
-        teacherId: Number(teacherId),
-        yearMonth,
-        subjectId: subjectId ? Number(subjectId) : null,
-        adjustments: adjustments
-          .filter((a) => asNum(a.amount) !== 0 || String(a.note || "").trim())
-          .map((a) => ({
-            type: a.type,
-            amount: asNum(a.amount),
-            note: String(a.note || "").trim(),
-          })),
-      };
-
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/student-payments/teacher-bill/pdf`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+    const timer = setInterval(() => {
+      try {
+        if (w.document.readyState === "complete") {
+          clearInterval(timer);
+          w.focus();
+          w.print();
         }
-      );
-
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || "Failed to generate PDF");
+      } catch {
+        // ignore (cross-origin / still loading)
       }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-
-      // cleanup old URL
-      setPdfUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return url;
-      });
-
-      toast.success("PDF generated.");
-    } catch (e) {
-      toast.error(e.message || "PDF generate failed");
-    } finally {
-      setLoading(false);
-    }
+    }, 400);
   }
 
-  function printPdf() {
-    if (!iframeRef.current) return;
-    try {
-      iframeRef.current.contentWindow.focus();
-      iframeRef.current.contentWindow.print();
-    } catch {
-      toast.error("Print blocked. Try opening PDF in new tab.");
-      window.open(pdfUrl, "_blank");
-    }
-  }
+  // cleanup blob url on unmount
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    };
+  }, [pdfUrl]);
 
   // -----------------------------
   // UI
@@ -221,16 +228,28 @@ export default function BillGenerate() {
       <Card title="Bill Generate (Teacher)">
         <div
           className="grid"
-          style={{ gridTemplateColumns: "1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}
+          style={{
+            gridTemplateColumns: "1fr 1fr 1fr auto",
+            gap: 12,
+            alignItems: "end",
+          }}
         >
           <div>
             <label className="label">Year - Month</label>
-            <Input type="month" value={yearMonth} onChange={(e) => setYearMonth(e.target.value)} />
+            <Input
+              type="month"
+              value={yearMonth}
+              onChange={(e) => setYearMonth(e.target.value)}
+            />
           </div>
 
           <div>
             <label className="label">Teacher</label>
-            <select className="input" value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
+            <select
+              className="input"
+              value={teacherId}
+              onChange={(e) => setTeacherId(e.target.value)}
+            >
               <option value="">Select teacher</option>
               {teachers.map((t) => (
                 <option key={t.id} value={String(t.id)}>
@@ -242,7 +261,11 @@ export default function BillGenerate() {
 
           <div>
             <label className="label">Subject (Optional)</label>
-            <select className="input" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+            <select
+              className="input"
+              value={subjectId}
+              onChange={(e) => setSubjectId(e.target.value)}
+            >
               <option value="">All Subjects</option>
               {subjects.map((s) => (
                 <option key={s.id} value={String(s.id)}>
@@ -250,7 +273,9 @@ export default function BillGenerate() {
                 </option>
               ))}
             </select>
-            <div className="muted">Example: Select Maths → shows Maths classes only.</div>
+            <div className="muted">
+              Example: Select Maths → shows Maths classes only.
+            </div>
           </div>
 
           <Button type="button" onClick={loadSummary} disabled={loading || !teacherId}>
@@ -292,18 +317,30 @@ export default function BillGenerate() {
           >
             <div className="row" style={{ justifyContent: "space-between" }}>
               <div>
-                <div className="muted" style={{ fontSize: 12 }}>Teacher Amount (Base)</div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>{money(summary?.totals?.teacherIncome ?? 0)}</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Teacher Amount (Base)
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>
+                  {money(summary?.totals?.teacherIncome ?? 0)}
+                </div>
               </div>
 
               <div>
-                <div className="muted" style={{ fontSize: 12 }}>Adjustments (Net)</div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>{money(adjustmentTotals.net)}</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Adjustments (Net)
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>
+                  {money(adjustmentTotals.net)}
+                </div>
               </div>
 
               <div>
-                <div className="muted" style={{ fontSize: 12 }}>Final Teacher Total</div>
-                <div style={{ fontSize: 22, fontWeight: 900 }}>{money(finalTeacherTotal)}</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Final Teacher Total
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 900 }}>
+                  {money(finalTeacherTotal)}
+                </div>
               </div>
             </div>
 
@@ -350,7 +387,11 @@ export default function BillGenerate() {
                       placeholder="Note (ex: Travel / Bonus / Penalty...)"
                     />
 
-                    <button type="button" className="linkBtn" onClick={() => removeAdjustment(i)}>
+                    <button
+                      type="button"
+                      className="linkBtn"
+                      onClick={() => removeAdjustment(i)}
+                    >
                       Remove
                     </button>
                   </div>
@@ -445,7 +486,7 @@ export default function BillGenerate() {
               src={pdfUrl}
               style={{
                 width: "100%",
-                height: "900px", // A4 preview feel
+                height: "900px",
                 border: "0",
               }}
             />

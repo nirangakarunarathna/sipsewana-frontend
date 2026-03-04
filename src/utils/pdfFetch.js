@@ -17,17 +17,6 @@ function normalizeMsg(data) {
   return msg || "Request failed";
 }
 
-function shouldSetJsonContentType(options) {
-  // if body is JSON string, set Content-Type
-  const b = options?.body;
-  if (!b) return false;
-  if (typeof b === "string") return true;
-  // don't set for FormData / Blob
-  if (b instanceof FormData) return false;
-  if (b instanceof Blob) return false;
-  return false;
-}
-
 export async function apiFetch(path, options = {}) {
   const token = localStorage.getItem("token");
 
@@ -37,19 +26,13 @@ export async function apiFetch(path, options = {}) {
     ...fetchOptions
   } = options;
 
-  const headers = {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(fetchOptions.headers || {}),
-  };
-
-  // ✅ Important: Keep JSON content-type if sending JSON, even when expecting blob
-  if (!headers["Content-Type"] && shouldSetJsonContentType(fetchOptions)) {
-    headers["Content-Type"] = "application/json";
-  }
-
   const res = await fetch(`${API_BASE}${path}`, {
     ...fetchOptions,
-    headers,
+    headers: {
+      ...(responseType === "blob" ? {} : { "Content-Type": "application/json" }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(fetchOptions.headers || {}),
+    },
   });
 
   // ✅ 401 handling
@@ -60,9 +43,10 @@ export async function apiFetch(path, options = {}) {
     throw new Error("Unauthorized");
   }
 
-  // ✅ BLOB
+  // ✅ Handle BLOB (PDF)
   if (responseType === "blob") {
     if (!res.ok) {
+      // try read text for error message
       let t = "";
       try {
         t = await res.text();
@@ -85,7 +69,7 @@ export async function apiFetch(path, options = {}) {
     return t;
   }
 
-  // ✅ JSON
+  // ✅ JSON (default)
   const text = await res.text();
   const data = text
     ? (() => {
