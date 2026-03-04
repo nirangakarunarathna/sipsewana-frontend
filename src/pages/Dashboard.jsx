@@ -1,35 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
-async function apiFetch(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
+// async function apiFetch(path, options = {}) {
+//   const res = await fetch(`${API_BASE}${path}`, {
+//     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+//     ...options,
+//   });
 
-  const text = await res.text();
-  const data = text
-    ? (() => {
-        try {
-          return JSON.parse(text);
-        } catch {
-          return text;
-        }
-      })()
-    : null;
+//   const text = await res.text();
+//   const data = text
+//     ? (() => {
+//         try {
+//           return JSON.parse(text);
+//         } catch {
+//           return text;
+//         }
+//       })()
+//     : null;
 
-  if (!res.ok) {
-    const msg =
-      (data && typeof data === "object" && (data.message || data.error)) ||
-      (typeof data === "string" ? data : "Request failed");
-    throw new Error(msg);
-  }
-  return data;
-}
+//   if (!res.ok) {
+//     const msg =
+//       (data && typeof data === "object" && (data.message || data.error)) ||
+//       (typeof data === "string" ? data : "Request failed");
+//     throw new Error(msg);
+//   }
+//   return data;
+// }
 
 function ymNow() {
   return new Date().toISOString().slice(0, 7);

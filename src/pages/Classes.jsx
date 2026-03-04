@@ -1,38 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
-
-async function apiFetch(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-
-  const text = await res.text();
-  const data = text
-    ? (() => {
-        try {
-          return JSON.parse(text);
-        } catch {
-          return text;
-        }
-      })()
-    : null;
-
-  if (!res.ok) {
-    const msg =
-      (data && typeof data === "object" && (data.message || data.error)) ||
-      (typeof data === "string" ? data : "Request failed");
-    throw new Error(msg);
-  }
-  return data;
-}
 
 export default function Classes() {
   // dropdown data
@@ -46,7 +16,7 @@ export default function Classes() {
   const [teacherId, setTeacherId] = useState("");
   const [name, setName] = useState("");
   const [fee, setFee] = useState("");
-  const [institutePercentage, setInstitutePercentage] = useState("25"); // ✅ new
+  const [institutePercentage, setInstitutePercentage] = useState("25");
 
   // list
   const [classes, setClasses] = useState([]);
@@ -157,7 +127,7 @@ export default function Classes() {
         teacherId: Number(teacherId),
         name: name.trim(),
         fee: Number(fee),
-        institutePercentage: perc, // ✅ send to backend
+        institutePercentage: perc,
       };
 
       await apiFetch("/classes", {
@@ -168,7 +138,7 @@ export default function Classes() {
       setSuccessMsg("Class registered successfully.");
       setName("");
       setFee("");
-      setInstitutePercentage("25"); // reset default
+      setInstitutePercentage("25");
       await loadClasses();
     } catch (e) {
       setErrorMsg(e.message || "Failed to register class");
@@ -193,7 +163,6 @@ export default function Classes() {
     }
   }
 
-  // OPTIONAL: if you have status endpoint
   async function toggleActive(row) {
     const current = !!(row.isActive ?? row.active ?? true);
     const next = !current;
@@ -266,21 +235,11 @@ export default function Classes() {
           {!teachers.length ? <div className="muted">Add teachers first.</div> : null}
 
           <label className="label">Class Name</label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Grade 2 / English"
-          />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Grade 2 / English" />
 
           <label className="label">Fee</label>
-          <Input
-            value={fee}
-            onChange={(e) => setFee(e.target.value)}
-            placeholder="1200"
-            inputMode="numeric"
-          />
+          <Input value={fee} onChange={(e) => setFee(e.target.value)} placeholder="1200" inputMode="numeric" />
 
-          {/* ✅ Institute Percentage */}
           <label className="label">Institute Percentage (%)</label>
           <Input
             value={institutePercentage}
@@ -343,10 +302,7 @@ export default function Classes() {
                     const teacherName = c.teacher?.fullName ?? c.teacherName ?? c.teacher?.name ?? "-";
 
                     const instPerc =
-                      c.institutePercentage ??
-                      c.institute_percentage ??
-                      c.institute_percent ??
-                      25;
+                      c.institutePercentage ?? c.institute_percentage ?? c.institute_percent ?? 25;
 
                     return (
                       <tr key={c.id}>

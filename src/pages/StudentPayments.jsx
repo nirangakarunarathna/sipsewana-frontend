@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
-import { api } from "../api/axios";
 import { monthKey } from "../data/storage";
 
 export default function Students() {
@@ -27,14 +27,14 @@ export default function Students() {
         setError("");
 
         const [stuRes, classRes] = await Promise.all([
-          api.get("/students"),
-          api.get("/classes"), // change if different route
+          apiFetch("/students", { method: "GET" }),
+          apiFetch("/classes", { method: "GET" }),
         ]);
 
-        setStudents(stuRes.data || []);
-        setClasses(classRes.data || []);
+        setStudents(Array.isArray(stuRes) ? stuRes : stuRes?.data ?? []);
+        setClasses(Array.isArray(classRes) ? classRes : classRes?.data ?? []);
       } catch (err) {
-        setError(err.response?.data?.message || "Failed to load data");
+        setError(err.message || "Failed to load data");
       } finally {
         setLoading(false);
       }
@@ -49,9 +49,12 @@ export default function Students() {
 
     async function loadPayments() {
       try {
-        const res = await api.get(`/payments?month=${month}`);
-        setPayments(res.data || []);
-      } catch (err) {
+        // ⚠️ keep your backend route here (you used /payments?month=...)
+        const res = await apiFetch(`/payments?month=${encodeURIComponent(month)}`, {
+          method: "GET",
+        });
+        setPayments(Array.isArray(res) ? res : res?.data ?? []);
+      } catch {
         setPayments([]);
       }
     }
@@ -68,7 +71,7 @@ export default function Students() {
 
   const payMap = useMemo(() => {
     const m = new Map();
-    for (const p of payments) m.set(String(p.studentId), p);
+    for (const p of payments) m.set(String(p.studentId ?? p.student_id ?? p.id), p);
     return m;
   }, [payments]);
 
@@ -78,23 +81,22 @@ export default function Students() {
 
     return students
       .filter((s) => {
-        const cid = String(s.courseId ?? s.classId ?? "");
+        const cid = String(s.courseId ?? s.classId ?? s.class_id ?? "");
 
         if (classId !== "ALL" && cid !== classId) return false;
-
         if (!query) return true;
 
         return (
-          (s.name ?? "").toLowerCase().includes(query) ||
-          (s.phone ?? "").toLowerCase().includes(query)
+          String(s.fullName ?? s.name ?? "").toLowerCase().includes(query) ||
+          String(s.studentMobile ?? s.phone ?? "").toLowerCase().includes(query)
         );
       })
       .map((s) => {
-        const cid = String(s.courseId ?? s.classId ?? "");
+        const cid = String(s.courseId ?? s.classId ?? s.class_id ?? "");
         const cls = classMap.get(cid);
 
-        const p = payMap.get(String(s.id));
-        const paid = p ? !!p.paid : false;
+        const p = payMap.get(String(s.id ?? s.studentId ?? s.student_id));
+        const paid = p ? !!(p.paid ?? p.is_paid ?? p.isPaid) : false;
 
         return { student: s, cls, paid };
       })
@@ -114,18 +116,25 @@ export default function Students() {
   async function markPaid(studentId, paid) {
     try {
       setSaving(true);
+      setError("");
 
-      await api.post("/payments", {
-        studentId,
-        month,
-        paid,
+      // ⚠️ keep your backend route here (you used POST /payments)
+      await apiFetch("/payments", {
+        method: "POST",
+        body: JSON.stringify({
+          studentId,
+          month,
+          paid,
+        }),
       });
 
       // reload payments
-      const res = await api.get(`/payments?month=${month}`);
-      setPayments(res.data || []);
+      const res = await apiFetch(`/payments?month=${encodeURIComponent(month)}`, {
+        method: "GET",
+      });
+      setPayments(Array.isArray(res) ? res : res?.data ?? []);
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to update payment");
+      setError(err.message || "Failed to update payment");
     } finally {
       setSaving(false);
     }
@@ -210,8 +219,8 @@ export default function Students() {
           <tbody>
             {rows.map(({ student, cls, paid }) => (
               <tr key={student.id}>
-                <td>{student.fullName}</td>
-                <td>{student.studentMobile || "-"}</td>
+                <td>{student.fullName ?? student.name ?? "-"}</td>
+                <td>{student.studentMobile ?? student.phone ?? "-"}</td>
                 <td>{cls?.name || "-"}</td>
                 <td>
                   <span className={paid ? "pill pillPaid" : "pill pillDue"}>
@@ -219,10 +228,7 @@ export default function Students() {
                   </span>
                 </td>
                 <td className="actions">
-                  <Button
-                    onClick={() => markPaid(student.id, true)}
-                    disabled={saving}
-                  >
+                  <Button onClick={() => markPaid(student.id, true)} disabled={saving}>
                     Mark Paid
                   </Button>
                   <Button
