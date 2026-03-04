@@ -77,6 +77,18 @@ function getStudentMobileLine(st, sid) {
   return line || `ID: ${sid}`;
 }
 
+function getClassInstitutePercentage(cls) {
+  // supports different naming
+  const v =
+    cls?.institutePercentage ??
+    cls?.institute_percentage ??
+    cls?.institute_percent ??
+    cls?.institute_share ??
+    0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function AttendanceMarkTable() {
   // selectors
   const [classes, setClasses] = useState([]);
@@ -217,6 +229,18 @@ export default function AttendanceMarkTable() {
   const hasSessions = sessions.length > 0;
 
   // ----------------------------
+  // Selected class (for institute %)
+  // ----------------------------
+  const selectedClass = useMemo(() => {
+    const idNum = Number(classId);
+    return classes.find((c) => Number(c.id) === idNum) || null;
+  }, [classes, classId]);
+
+  const institutePercentage = useMemo(() => {
+    return getClassInstitutePercentage(selectedClass);
+  }, [selectedClass]);
+
+  // ----------------------------
   // Summary
   // ----------------------------
   const summary = useMemo(() => {
@@ -239,13 +263,17 @@ export default function AttendanceMarkTable() {
     const paidPercent =
       totalStudents > 0 ? Math.round((paidCount / totalStudents) * 100) : 0;
 
+    const instituteIncome = (Number(totalPaidAmount) * Number(institutePercentage || 0)) / 100;
+
     return {
       totalStudents,
       paidCount,
       paidPercent,
       totalPaidAmount,
+      institutePercentage: Number(institutePercentage || 0),
+      instituteIncome,
     };
-  }, [students, payments]);
+  }, [students, payments, institutePercentage]);
 
   // ----------------------------
   // Toggle attendance cell
@@ -454,12 +482,12 @@ export default function AttendanceMarkTable() {
           </button>
         </div>
 
-        {/* Summary */}
+        {/* Summary (includes institute %) */}
         <div
           style={{
             marginTop: 12,
             display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
             gap: 12,
           }}
         >
@@ -482,6 +510,20 @@ export default function AttendanceMarkTable() {
             <div className="muted" style={{ fontSize: 12 }}>Total Paid Amount</div>
             <div style={{ fontSize: 22, fontWeight: 800 }}>
               {summary.totalPaidAmount.toLocaleString()}
+            </div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 14, padding: 12, background: "#fff" }}>
+            <div className="muted" style={{ fontSize: 12 }}>Institute %</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {summary.institutePercentage}%
+            </div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 14, padding: 12, background: "#fff" }}>
+            <div className="muted" style={{ fontSize: 12 }}>Institute Income</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {summary.instituteIncome.toLocaleString()}
             </div>
           </div>
         </div>

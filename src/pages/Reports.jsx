@@ -1,125 +1,342 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
-import { loadDB, monthKey } from "../data/storage";
+import Button from "../ui/Button.jsx";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+
+  const text = await res.text();
+  const data = text
+    ? (() => {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return text;
+        }
+      })()
+    : null;
+
+  if (!res.ok) {
+    const msg =
+      (data && typeof data === "object" && (data.message || data.error)) ||
+      (typeof data === "string" ? data : "Request failed");
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function ymNow() {
+  return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+function yearNow() {
+  return String(new Date().getFullYear());
+}
 function percent(paid, total) {
   if (!total) return "0%";
   return `${Math.round((paid / total) * 100)}%`;
 }
+function asNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 
 export default function Reports() {
-  const [db] = useState(loadDB());
-  const [month, setMonth] = useState(monthKey(new Date())); // can type past months
+  const [mode, setMode] = useState("month"); // "month" | "year"
+  const [year, setYear] = useState(yearNow());
+  const [yearMonth, setYearMonth] = useState(ymNow());
 
-  const table = useMemo(() => {
-    const classes = db.courses; // courses = classes
-    const students = db.students;
+  // backend response:
+  // { scope, period, rows: [...], totals: {...} }
+  const [summary, setSummary] = useState({
+    scope: "month",
+    period: ymNow(),
+    rows: [],
+    totals: {
+      totalStudents: 0,
+      paidCount: 0,
+      notPaidCount: 0,
+      totalIncome: 0,
+      instituteIncome: 0,
+      paidPct: 0,
+    },
+  });
 
-    // payment map for this month: studentId -> paid boolean
-    const payMap = new Map();
-    for (const p of db.payments) {
-      if (p.month === month) payMap.set(p.studentId, !!p.paid);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function loadSummary() {
+    setLoading(true);
+    setErrorMsg("");
+
+    try {
+      const url =
+        mode === "year"
+          ? `/student-payments/summary?scope=year&year=${encodeURIComponent(year)}`
+          : `/student-payments/summary?scope=month&yearMonth=${encodeURIComponent(
+              yearMonth
+            )}`;
+
+      const res = await apiFetch(url);
+
+      // ✅ IMPORTANT: res is an object, not an array
+      const rows = Array.isArray(res?.rows) ? res.rows : [];
+      const totals = res?.totals || {};
+
+      setSummary({
+        scope: res?.scope ?? mode,
+        period: res?.period ?? (mode === "year" ? year : yearMonth),
+        rows: rows.map((r) => ({
+          subjectId: r.subjectId,
+          subjectName: r.subjectName,
+          totalStudents: asNum(r.totalStudents),
+          paidCount: asNum(r.paidCount),
+          notPaidCount: asNum(r.notPaidCount),
+          totalIncome: asNum(r.totalIncome),
+          instituteIncome: asNum(r.instituteIncome),
+          paidPct: asNum(r.paidPct),
+        })),
+        totals: {
+          totalStudents: asNum(totals.totalStudents),
+          paidCount: asNum(totals.paidCount),
+          notPaidCount: asNum(totals.notPaidCount),
+          totalIncome: asNum(totals.totalIncome),
+          instituteIncome: asNum(totals.instituteIncome),
+          paidPct: asNum(totals.paidPct),
+        },
+      });
+    } catch (e) {
+      setErrorMsg(e.message || "Failed to load summary");
+      setSummary((prev) => ({
+        ...prev,
+        rows: [],
+        totals: {
+          totalStudents: 0,
+          paidCount: 0,
+          notPaidCount: 0,
+          totalIncome: 0,
+          instituteIncome: 0,
+          paidPct: 0,
+        },
+      }));
+    } finally {
+      setLoading(false);
     }
+  }
 
-    // build class rows (ALL classes even if 0 students)
-    const rows = classes.map((cls) => {
-      const clsStudents = students.filter((s) => s.courseId === cls.id);
+  useEffect(() => {
+    loadSummary();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, year, yearMonth]);
 
-      let paid = 0;
-      let notPaid = 0;
+  const titleScope = mode === "year" ? year : yearMonth;
 
-      for (const s of clsStudents) {
-        const isPaid = payMap.get(s.id) ?? false; // missing record = NOT PAID
-        if (isPaid) paid++;
-        else notPaid++;
-      }
-
-      return {
-        classId: cls.id,
-        className: cls.name,
-        total: clsStudents.length,
-        paid,
-        notPaid,
-        paidPct: percent(paid, clsStudents.length),
-      };
-    });
-
-    // totals
-    const totals = rows.reduce(
-      (acc, r) => {
-        acc.total += r.total;
-        acc.paid += r.paid;
-        acc.notPaid += r.notPaid;
-        return acc;
-      },
-      { total: 0, paid: 0, notPaid: 0 }
-    );
-
-    return {
-      rows: rows.sort((a, b) => b.total - a.total),
-      totals: {
-        ...totals,
-        paidPct: percent(totals.paid, totals.total),
-      },
-    };
-  }, [db, month]);
+  // If backend already returns paidPct, you can use it.
+  // Otherwise calculate:
+  const totalsPaidPct = useMemo(() => {
+    return percent(summary.totals.paidCount, summary.totals.totalStudents);
+  }, [summary.totals]);
 
   return (
-    <div className="grid">
-      <Card title="Monthly Report (Class-wise)">
-        <div className="row">
-          <label className="label">Month (YYYY-MM)</label>
-          <Input
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            placeholder="2026-02"
-          />
-          <div className="muted">Type past months too (ex: 2025-12).</div>
+    <div className="grid gap-4">
+      <Card title="Monthly / Yearly Report (Subject-wise)">
+        {errorMsg ? <div className="error">{errorMsg}</div> : null}
+
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: "auto 1fr 1fr auto",
+            gap: 12,
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <label className="label">Mode</label>
+            <select
+              className="input"
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+            >
+              <option value="month">Month</option>
+              <option value="year">Year</option>
+            </select>
+          </div>
+
+          {mode === "year" ? (
+            <div>
+              <label className="label">Year (YYYY)</label>
+              <Input
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+                placeholder="2026"
+              />
+              <div className="muted">Example: 2026</div>
+            </div>
+          ) : (
+            <div>
+              <label className="label">Month (YYYY-MM)</label>
+              <Input
+                type="month"
+                value={yearMonth}
+                onChange={(e) => setYearMonth(e.target.value)}
+              />
+              <div className="muted">Example: 2026-02</div>
+            </div>
+          )}
+
+          <div />
+
+          <Button type="button" onClick={loadSummary} disabled={loading}>
+            {loading ? "Loading..." : "Reload"}
+          </Button>
+        </div>
+
+        {/* Summary cards */}
+        <div
+          style={{
+            marginTop: 12,
+            display: "grid",
+            gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 14,
+              padding: 12,
+              background: "#fff",
+            }}
+          >
+            <div className="muted" style={{ fontSize: 12 }}>
+              Total Students
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {summary.totals.totalStudents}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 14,
+              padding: 12,
+              background: "#fff",
+            }}
+          >
+            <div className="muted" style={{ fontSize: 12 }}>
+              Paid
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {summary.totals.paidCount}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 14,
+              padding: 12,
+              background: "#fff",
+            }}
+          >
+            <div className="muted" style={{ fontSize: 12 }}>
+              Not Paid
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {summary.totals.notPaidCount}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 14,
+              padding: 12,
+              background: "#fff",
+            }}
+          >
+            <div className="muted" style={{ fontSize: 12 }}>
+              Total Income
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {Math.round(summary.totals.totalIncome).toLocaleString()}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 14,
+              padding: 12,
+              background: "#fff",
+            }}
+          >
+            <div className="muted" style={{ fontSize: 12 }}>
+              Institute Income
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {Math.round(summary.totals.instituteIncome).toLocaleString()}
+            </div>
+          </div>
         </div>
       </Card>
 
-      <Card title={`Report Table (${month})`}>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Class</th>
-              <th>Total Students</th>
-              <th>Paid</th>
-              <th>Not Paid</th>
-              <th>Paid %</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {table.rows.map((r) => (
-              <tr key={r.classId}>
-                <td>{r.className}</td>
-                <td>{r.total}</td>
-                <td>{r.paid}</td>
-                <td>{r.notPaid}</td>
-                <td>{r.paidPct}</td>
-              </tr>
-            ))}
-
-            {/* Bottom totals row */}
-            <tr style={{ fontWeight: 800 }}>
-              <td>TOTAL (All Classes)</td>
-              <td>{table.totals.total}</td>
-              <td>{table.totals.paid}</td>
-              <td>{table.totals.notPaid}</td>
-              <td>{table.totals.paidPct}</td>
-            </tr>
-
-            {!table.rows.length ? (
+      <Card title={`Report Table (${titleScope})`}>
+        <div className="tableWrap" style={{ overflowX: "auto" }}>
+          <table className="table" style={{ minWidth: 950 }}>
+            <thead>
               <tr>
-                <td colSpan="5" className="muted">
-                  No classes found. Add classes first.
+                <th>Subject</th>
+                <th>Total Students</th>
+                <th>Paid</th>
+                <th>Not Paid</th>
+                <th>Paid %</th>
+                <th>Total Income</th>
+                <th>Institute Income</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {summary.rows.map((r) => (
+                <tr key={r.subjectId ?? r.subjectName}>
+                  <td>{r.subjectName}</td>
+                  <td>{r.totalStudents}</td>
+                  <td>{r.paidCount}</td>
+                  <td>{r.notPaidCount}</td>
+                  <td>{percent(r.paidCount, r.totalStudents)}</td>
+                  <td>{Math.round(r.totalIncome).toLocaleString()}</td>
+                  <td>{Math.round(r.instituteIncome).toLocaleString()}</td>
+                </tr>
+              ))}
+
+              <tr style={{ fontWeight: 800 }}>
+                <td>TOTAL (All Subjects)</td>
+                <td>{summary.totals.totalStudents}</td>
+                <td>{summary.totals.paidCount}</td>
+                <td>{summary.totals.notPaidCount}</td>
+                <td>{totalsPaidPct}</td>
+                <td>{Math.round(summary.totals.totalIncome).toLocaleString()}</td>
+                <td>
+                  {Math.round(summary.totals.instituteIncome).toLocaleString()}
                 </td>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+
+              {!summary.rows.length ? (
+                <tr>
+                  <td colSpan="7" className="muted">
+                    No data found for selected {mode === "year" ? "year" : "month"}.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </div>
   );
