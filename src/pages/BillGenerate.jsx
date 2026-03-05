@@ -5,8 +5,11 @@ import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
 import toast from "react-hot-toast";
 
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
 function ymNow() {
-  return new Date().toISOString().slice(0, 7); // YYYY-MM
+  return new Date().toISOString().slice(0, 7);
 }
 
 function asNum(v) {
@@ -19,21 +22,50 @@ function money(n) {
   return Math.round(x).toLocaleString();
 }
 
+function avgInstitutePctFromTotals(totalIncome, instituteIncome) {
+  const ti = asNum(totalIncome);
+  const ii = asNum(instituteIncome);
+  if (!ti) return 0;
+  return Math.round((ii / ti) * 100);
+}
+
+function netFromAdjustments(list) {
+  let add = 0;
+  let deduct = 0;
+  for (const a of list) {
+    const amt = asNum(a.amount);
+    if (a.type === "add") add += amt;
+    else deduct += amt;
+  }
+  return { add, deduct, net: add - deduct };
+}
+
+function cleanAdjustments(list) {
+  return (list || [])
+    .map((a) => ({
+      type: a?.type === "deduct" ? "deduct" : "add",
+      amount: asNum(a?.amount),
+      note: String(a?.note || "").trim(),
+    }))
+    .filter((a) => a.amount !== 0 || a.note);
+}
+
 export default function BillGenerate() {
   const [yearMonth, setYearMonth] = useState(ymNow());
   const [teachers, setTeachers] = useState([]);
   const [subjects, setSubjects] = useState([]);
 
   const [teacherId, setTeacherId] = useState("");
-  const [subjectId, setSubjectId] = useState(""); // optional
+  const [subjectId, setSubjectId] = useState("");
 
   const [loading, setLoading] = useState(false);
-
-  // summary from backend
   const [summary, setSummary] = useState(null);
 
-  // adjustments
-  const [adjustments, setAdjustments] = useState([]);
+  // Section 1: affects TOTAL income; institute recalculated by %
+  const [adjSection1, setAdjSection1] = useState([]);
+
+  // Section 2: affects TEACHER total only
+  const [adjSection2, setAdjSection2] = useState([]);
 
   // PDF preview
   const [pdfUrl, setPdfUrl] = useState("");
@@ -58,7 +90,6 @@ export default function BillGenerate() {
 
       if (!teacherId && tList[0]?.id) setTeacherId(String(tList[0].id));
     } catch (e) {
-      // apiFetch already toast error
       console.error(e);
     } finally {
       setLoading(false);
@@ -80,7 +111,7 @@ export default function BillGenerate() {
     }
 
     setLoading(true);
-    setPdfUrl(""); // clear preview when reloading summary
+    setPdfUrl("");
     try {
       const qs = new URLSearchParams({
         teacherId: String(teacherId),
@@ -106,71 +137,289 @@ export default function BillGenerate() {
   }, [teacherId, yearMonth, subjectId]);
 
   // -----------------------------
-  // Adjustments
+  // Section helpers
   // -----------------------------
-  function addAdjustment(type) {
-    setAdjustments((prev) => [...prev, { type, amount: 0, note: "" }]);
+  function addAdj1(type) {
+    setAdjSection1((prev) => [...prev, { type, amount: 0, note: "" }]);
+  }
+  function addAdj2(type) {
+    setAdjSection2((prev) => [...prev, { type, amount: 0, note: "" }]);
   }
 
-  function updateAdjustment(i, patch) {
-    setAdjustments((prev) =>
+  function updateAdj1(i, patch) {
+    setAdjSection1((prev) =>
+      prev.map((x, idx) => (idx === i ? { ...x, ...patch } : x))
+    );
+  }
+  function updateAdj2(i, patch) {
+    setAdjSection2((prev) =>
       prev.map((x, idx) => (idx === i ? { ...x, ...patch } : x))
     );
   }
 
-  function removeAdjustment(i) {
-    setAdjustments((prev) => prev.filter((_, idx) => idx !== i));
+  function removeAdj1(i) {
+    setAdjSection1((prev) => prev.filter((_, idx) => idx !== i));
+  }
+  function removeAdj2(i) {
+    setAdjSection2((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  const adjustmentTotals = useMemo(() => {
-    let add = 0;
-    let deduct = 0;
-    for (const a of adjustments) {
-      const amt = asNum(a.amount);
-      if (a.type === "add") add += amt;
-      else deduct += amt;
-    }
-    return { add, deduct, net: add - deduct };
-  }, [adjustments]);
-
-  const finalTeacherTotal = useMemo(() => {
-    const base = asNum(summary?.totals?.teacherIncome ?? 0);
-    return base + adjustmentTotals.net;
-  }, [summary, adjustmentTotals]);
-
   // -----------------------------
-  // Generate PDF (A4) + Preview
-  // ✅ Uses apiFetch (adds Authorization header automatically)
-  // ✅ Uses blob response
+  // FINAL CALC (UI + PDF)
   // -----------------------------
-  async function generatePdf() {
-  if (!teacherId || !yearMonth) {
-    toast.error("Select teacher and month.");
-    return;
-  }
+  const totalsBase = useMemo(() => {
+    const totalIncomeBase = asNum(summary?.totals?.totalIncome ?? 0);
+    const instituteIncomeBase = asNum(summary?.totals?.instituteIncome ?? 0);
+    const institutePct = avgInstitutePctFromTotals(
+      totalIncomeBase,
+      instituteIncomeBase
+    );
 
-  setLoading(true);
-  try {
-    const payload = {
-      teacherId: Number(teacherId),
-      yearMonth,
-      subjectId: subjectId ? Number(subjectId) : null,
-      adjustments: adjustments
-        .filter((a) => asNum(a.amount) !== 0 || String(a.note || "").trim())
-        .map((a) => ({
-          type: a.type,
-          amount: asNum(a.amount),
-          note: String(a.note || "").trim(),
-        })),
+    return { totalIncomeBase, instituteIncomeBase, institutePct };
+  }, [summary]);
+
+  const sec1 = useMemo(() => netFromAdjustments(adjSection1), [adjSection1]);
+  const sec2 = useMemo(() => netFromAdjustments(adjSection2), [adjSection2]);
+
+  const finalCalc = useMemo(() => {
+    const totalIncomeAfter1 = totalsBase.totalIncomeBase + sec1.net;
+
+    // ✅ institute recalculated from institute %
+    const instituteIncomeAfter1 = Math.round(
+      (totalIncomeAfter1 * totalsBase.institutePct) / 100
+    );
+
+    const teacherBaseAfterInstitute = totalIncomeAfter1 - instituteIncomeAfter1;
+    const finalTeacherTotal = teacherBaseAfterInstitute + sec2.net;
+
+    return {
+      totalIncomeAfter1,
+      instituteIncomeAfter1,
+      teacherBaseAfterInstitute,
+      finalTeacherTotal,
     };
+  }, [totalsBase, sec1, sec2]);
 
-    const blob = await apiFetch("/student-payments/teacher-bill/pdf", {
-      method: "POST",
-      headers: { Accept: "application/pdf" },
-      body: JSON.stringify(payload),
-      responseType: "blob",
+  // -----------------------------
+  // FRONTEND PDF GENERATION (NO backend)
+  // -----------------------------
+  function generatePdfFrontend() {
+    if (!summary) {
+      toast.error("Summary not loaded yet.");
+      return;
+    }
+
+    const teacher =
+      teachers.find((t) => String(t.id) === String(teacherId)) || null;
+    const subject =
+      subjectId
+        ? subjects.find((s) => String(s.id) === String(subjectId)) || null
+        : null;
+
+    const clean1 = cleanAdjustments(adjSection1);
+    const clean2 = cleanAdjustments(adjSection2);
+
+    const doc = new jsPDF("p", "pt", "a4");
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let y = 40;
+
+    // Title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("Teacher Payment Bill", pageWidth / 2, y, { align: "center" });
+
+    y += 20;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text(`Month: ${yearMonth}`, 40, y);
+    y += 16;
+    doc.text(`Teacher: ${teacher?.fullName ?? teacher?.name ?? `Teacher #${teacherId}`}`, 40, y);
+    y += 16;
+    if (subject) {
+      doc.text(`Subject: ${subject.name}`, 40, y);
+      y += 16;
+    }
+
+    y += 10;
+
+    // Summary block
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Summary", 40, y);
+    y += 8;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: 40, right: 40 },
+      theme: "grid",
+      styles: { fontSize: 10 },
+      head: [["Item", "Value"]],
+      body: [
+        ["Total Students", String(summary?.totals?.totalStudents ?? 0)],
+        ["Paid", String(summary?.totals?.paidCount ?? 0)],
+        ["Free", String(summary?.totals?.freeCount ?? 0)],
+        ["Not Paid", String(summary?.totals?.notPaidCount ?? 0)],
+        ["Total Income (Base)", money(totalsBase.totalIncomeBase)],
+        ["Institute Income (Base)", money(totalsBase.instituteIncomeBase)],
+        ["Institute % (from totals)", `${totalsBase.institutePct}%`],
+      ],
+      columnStyles: {
+        0: { cellWidth: 260 },
+        1: { cellWidth: 220, halign: "right" },
+      },
     });
 
+    y = doc.lastAutoTable.finalY + 18;
+
+    // Adjustments Section 1
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Section 1 Adjustments (affects Total Income)", 40, y);
+    y += 8;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: 40, right: 40 },
+      theme: "grid",
+      styles: { fontSize: 10 },
+      head: [["Type", "Amount", "Note"]],
+      body: clean1.length
+        ? clean1.map((a) => [
+            a.type.toUpperCase(),
+            money(a.amount),
+            a.note || "-",
+          ])
+        : [["-", "0", "No adjustments"]],
+      columnStyles: {
+        0: { cellWidth: 80 },
+        1: { cellWidth: 100, halign: "right" },
+        2: { cellWidth: 300 },
+      },
+    });
+
+    y = doc.lastAutoTable.finalY + 14;
+
+    // Adjustments Section 2
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Section 2 Adjustments (affects Teacher Total)", 40, y);
+    y += 8;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: 40, right: 40 },
+      theme: "grid",
+      styles: { fontSize: 10 },
+      head: [["Type", "Amount", "Note"]],
+      body: clean2.length
+        ? clean2.map((a) => [
+            a.type.toUpperCase(),
+            money(a.amount),
+            a.note || "-",
+          ])
+        : [["-", "0", "No adjustments"]],
+      columnStyles: {
+        0: { cellWidth: 80 },
+        1: { cellWidth: 100, halign: "right" },
+        2: { cellWidth: 300 },
+      },
+    });
+
+    y = doc.lastAutoTable.finalY + 16;
+
+    // Total balance (final values)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Total Balance (Final values used)", 40, y);
+    y += 8;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: 40, right: 40 },
+      theme: "grid",
+      styles: { fontSize: 10 },
+      head: [["Item", "Value"]],
+      body: [
+        ["Total Income (Base)", money(totalsBase.totalIncomeBase)],
+        ["Section 1 Net", money(sec1.net)],
+        ["Total Income (After Section 1)", money(finalCalc.totalIncomeAfter1)],
+        [
+          `Institute Income (Recalculated ${totalsBase.institutePct}%)`,
+          money(finalCalc.instituteIncomeAfter1),
+        ],
+        ["Teacher Base (After Institute)", money(finalCalc.teacherBaseAfterInstitute)],
+        ["Section 2 Net", money(sec2.net)],
+        ["✅ Final Teacher Total", money(finalCalc.finalTeacherTotal)],
+      ],
+      columnStyles: {
+        0: { cellWidth: 320 },
+        1: { cellWidth: 160, halign: "right" },
+      },
+    });
+
+    y = doc.lastAutoTable.finalY + 18;
+
+    /// Class-wise breakdown table
+doc.setFont("helvetica", "bold");
+doc.setFontSize(12);
+doc.text("Class-wise Breakdown", 40, y);
+y += 8;
+
+const rows = (summary?.rows ?? []).map((r) => [
+  r.className,
+  `${asNum(r.institutePercentage)}%`,
+  String(asNum(r.totalStudents)),
+  String(asNum(r.paidCount)),
+  String(asNum(r.freeCount)),
+  String(asNum(r.notPaidCount)),
+  money(r.totalIncome),
+  money(r.instituteIncome),
+  money(r.teacherIncome),
+]);
+
+autoTable(doc, {
+  startY: y,
+  margin: { left: 40, right: 40 },
+  tableWidth: "auto",              // ✅ let it fit inside page
+  theme: "grid",
+  styles: {
+    fontSize: 8,                    // ✅ smaller text
+    cellPadding: 3,                 // ✅ smaller padding
+    overflow: "linebreak",          // ✅ wrap long text
+    valign: "middle",
+  },
+  headStyles: { fontStyle: "bold" },
+  head: [[
+    "Class",
+    "Inst %",
+    "Tot",
+    "Paid",
+    "Free",
+    "Not",
+    "Income",
+    "Inst",
+    "Teach",
+  ]],
+  body: rows.length ? rows : [["-", "-", "-", "-", "-", "-", "-", "-", "-"]],
+
+  // ✅ widths adjusted to fit A4 (595pt) with margins (40+40)
+  // printable width ≈ 515pt, these sum ≈ 510pt
+  columnStyles: {
+    0: { cellWidth: 170 },              // Class
+    1: { cellWidth: 45, halign: "center" }, // Inst %
+    2: { cellWidth: 35, halign: "center" }, // Tot
+    3: { cellWidth: 35, halign: "center" }, // Paid
+    4: { cellWidth: 35, halign: "center" }, // Free
+    5: { cellWidth: 40, halign: "center" }, // Not
+    6: { cellWidth: 55, halign: "right" },  // Income
+    7: { cellWidth: 50, halign: "right" },  // Inst
+    8: { cellWidth: 45, halign: "right" },  // Teach
+  },
+});
+
+    // make blob url for preview
+    const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);
 
     setPdfUrl((prev) => {
@@ -178,19 +427,9 @@ export default function BillGenerate() {
       return url;
     });
 
-    toast.success("PDF generated.");
-  } catch (e) {
-    console.error(e);
-    // apiFetch already toasts
-  } finally {
-    setLoading(false);
+    toast.success("PDF generated (frontend).");
   }
-}
 
-  // -----------------------------
-  // Print PDF
-  // ✅ Most reliable: open in new tab then print
-  // -----------------------------
   function printPdf() {
     if (!pdfUrl) return;
 
@@ -208,12 +447,11 @@ export default function BillGenerate() {
           w.print();
         }
       } catch {
-        // ignore (cross-origin / still loading)
+        // ignore
       }
     }, 400);
   }
 
-  // cleanup blob url on unmount
   useEffect(() => {
     return () => {
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
@@ -278,12 +516,16 @@ export default function BillGenerate() {
             </div>
           </div>
 
-          <Button type="button" onClick={loadSummary} disabled={loading || !teacherId}>
+          <Button
+            type="button"
+            onClick={loadSummary}
+            disabled={loading || !teacherId}
+          >
             {loading ? "Loading..." : "Reload"}
           </Button>
         </div>
 
-        {/* Totals cards */}
+        {/* Base totals */}
         <div
           style={{
             marginTop: 12,
@@ -292,17 +534,21 @@ export default function BillGenerate() {
             gap: 12,
           }}
         >
-          <Stat title="Total Students" value={summary?.totals?.totalStudents ?? 0} />
+          <Stat
+            title="Total Students"
+            value={summary?.totals?.totalStudents ?? 0}
+          />
           <Stat title="Paid" value={summary?.totals?.paidCount ?? 0} />
           <Stat title="Free" value={summary?.totals?.freeCount ?? 0} />
           <Stat title="Not Paid" value={summary?.totals?.notPaidCount ?? 0} />
-          <Stat title="Total Income" value={money(summary?.totals?.totalIncome ?? 0)} />
-          <Stat title="Institute Income" value={money(summary?.totals?.instituteIncome ?? 0)} />
+          <Stat title="Total Income (Base)" value={money(totalsBase.totalIncomeBase)} />
+          <Stat title="Institute Income (Base)" value={money(totalsBase.instituteIncomeBase)} />
         </div>
 
-        <div style={{ marginTop: 12 }}>
+        {/* SECTION 1 */}
+        <div style={{ marginTop: 14 }}>
           <div className="muted" style={{ marginBottom: 6 }}>
-            Teacher Total (after institute share) + Adjustments
+            Section 1 — Add/Deduct affects Total Income, Institute recalculated by Institute %
           </div>
 
           <div
@@ -315,47 +561,63 @@ export default function BillGenerate() {
               gap: 10,
             }}
           >
-            <div className="row" style={{ justifyContent: "space-between" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr 1fr",
+                gap: 12,
+                alignItems: "end",
+              }}
+            >
               <div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  Teacher Amount (Base)
+                  Institute % (from totals)
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>
-                  {money(summary?.totals?.teacherIncome ?? 0)}
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {totalsBase.institutePct}%
                 </div>
               </div>
 
               <div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  Adjustments (Net)
+                  Total Income (After Section 1)
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>
-                  {money(adjustmentTotals.net)}
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {money(finalCalc.totalIncomeAfter1)}
                 </div>
               </div>
 
               <div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  Final Teacher Total
+                  Institute Income (After Section 1)
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 900 }}>
-                  {money(finalTeacherTotal)}
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {money(finalCalc.instituteIncomeAfter1)}
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right" }}>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Section 1 Net
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {money(sec1.net)}
                 </div>
               </div>
             </div>
 
             <div className="row" style={{ gap: 8 }}>
-              <Button type="button" onClick={() => addAdjustment("add")}>
-                + Add Price
+              <Button type="button" onClick={() => addAdj1("add")}>
+                + Add (Total)
               </Button>
-              <Button type="button" onClick={() => addAdjustment("deduct")}>
-                - Deduct Price
+              <Button type="button" onClick={() => addAdj1("deduct")}>
+                - Deduct (Total)
               </Button>
             </div>
 
-            {adjustments.length ? (
+            {adjSection1.length ? (
               <div className="grid" style={{ gap: 8 }}>
-                {adjustments.map((a, i) => (
+                {adjSection1.map((a, i) => (
                   <div
                     key={i}
                     style={{
@@ -368,7 +630,9 @@ export default function BillGenerate() {
                     <select
                       className="input"
                       value={a.type}
-                      onChange={(e) => updateAdjustment(i, { type: e.target.value })}
+                      onChange={(e) =>
+                        updateAdj1(i, { type: e.target.value })
+                      }
                     >
                       <option value="add">ADD</option>
                       <option value="deduct">DEDUCT</option>
@@ -377,20 +641,24 @@ export default function BillGenerate() {
                     <Input
                       type="number"
                       value={a.amount}
-                      onChange={(e) => updateAdjustment(i, { amount: e.target.value })}
+                      onChange={(e) =>
+                        updateAdj1(i, { amount: e.target.value })
+                      }
                       placeholder="Amount"
                     />
 
                     <Input
                       value={a.note}
-                      onChange={(e) => updateAdjustment(i, { note: e.target.value })}
+                      onChange={(e) =>
+                        updateAdj1(i, { note: e.target.value })
+                      }
                       placeholder="Note (ex: Travel / Bonus / Penalty...)"
                     />
 
                     <button
                       type="button"
                       className="linkBtn"
-                      onClick={() => removeAdjustment(i)}
+                      onClick={() => removeAdj1(i)}
                     >
                       Remove
                     </button>
@@ -398,13 +666,161 @@ export default function BillGenerate() {
                 ))}
               </div>
             ) : (
-              <div className="muted">No adjustments added.</div>
+              <div className="muted">No section 1 adjustments.</div>
+            )}
+          </div>
+        </div>
+
+        {/* SECTION 2 */}
+        <div style={{ marginTop: 14 }}>
+          <div className="muted" style={{ marginBottom: 6 }}>
+            Section 2 — Add/Deduct applied directly to Final Teacher Total
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 14,
+              padding: 12,
+              background: "#fff",
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr",
+                gap: 12,
+                alignItems: "end",
+              }}
+            >
+              <div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Teacher Base (After Institute)
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {money(finalCalc.teacherBaseAfterInstitute)}
+                </div>
+              </div>
+
+              <div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Section 2 Net
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {money(sec2.net)}
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right" }}>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Final Teacher Total
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 950 }}>
+                  {money(finalCalc.finalTeacherTotal)}
+                </div>
+              </div>
+            </div>
+
+            <div className="row" style={{ gap: 8 }}>
+              <Button type="button" onClick={() => addAdj2("add")}>
+                + Add (Teacher Total)
+              </Button>
+              <Button type="button" onClick={() => addAdj2("deduct")}>
+                - Deduct (Teacher Total)
+              </Button>
+            </div>
+
+            {adjSection2.length ? (
+              <div className="grid" style={{ gap: 8 }}>
+                {adjSection2.map((a, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "120px 140px 1fr auto",
+                      gap: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <select
+                      className="input"
+                      value={a.type}
+                      onChange={(e) =>
+                        updateAdj2(i, { type: e.target.value })
+                      }
+                    >
+                      <option value="add">ADD</option>
+                      <option value="deduct">DEDUCT</option>
+                    </select>
+
+                    <Input
+                      type="number"
+                      value={a.amount}
+                      onChange={(e) =>
+                        updateAdj2(i, { amount: e.target.value })
+                      }
+                      placeholder="Amount"
+                    />
+
+                    <Input
+                      value={a.note}
+                      onChange={(e) =>
+                        updateAdj2(i, { note: e.target.value })
+                      }
+                      placeholder="Note (ex: Bonus / Penalty...)"
+                    />
+
+                    <button
+                      type="button"
+                      className="linkBtn"
+                      onClick={() => removeAdj2(i)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="muted">No section 2 adjustments.</div>
             )}
           </div>
         </div>
       </Card>
 
-      {/* Class-wise table */}
+      {/* TOTAL BALANCE */}
+      <Card title="Total Balance — Final values used in PDF">
+        <div
+          style={{
+            border: "1px solid rgba(0,0,0,0.08)",
+            borderRadius: 14,
+            padding: 14,
+            background: "#fff",
+            display: "grid",
+            gap: 8,
+          }}
+        >
+          <RowLine label="Total Income (Base)" value={money(totalsBase.totalIncomeBase)} />
+          <RowLine label="Section 1 Net" value={money(sec1.net)} />
+
+          <div style={{ height: 10 }} />
+
+          <RowLine label="Total Income (After Section 1)" value={money(finalCalc.totalIncomeAfter1)} />
+          <RowLine
+            label={`Institute Income (Recalculated ${totalsBase.institutePct}%)`}
+            value={money(finalCalc.instituteIncomeAfter1)}
+          />
+          <RowLine label="Teacher Base (After Institute)" value={money(finalCalc.teacherBaseAfterInstitute)} />
+          <RowLine label="Section 2 Net" value={money(sec2.net)} />
+
+          <div style={{ height: 10 }} />
+
+          <RowLine label="✅ Final Teacher Total" value={money(finalCalc.finalTeacherTotal)} strong />
+        </div>
+      </Card>
+
+      {/* Class-wise */}
       <Card title="Class-wise Breakdown">
         <div className="tableWrap" style={{ overflowX: "auto" }}>
           <table className="table" style={{ minWidth: 1100 }}>
@@ -435,7 +851,6 @@ export default function BillGenerate() {
                   <td>{money(r.teacherIncome)}</td>
                 </tr>
               ))}
-
               {!summary?.rows?.length ? (
                 <tr>
                   <td colSpan={9} className="muted">
@@ -451,8 +866,8 @@ export default function BillGenerate() {
       {/* PDF Preview */}
       <Card title="A4 PDF Preview & Print">
         <div className="row" style={{ gap: 10 }}>
-          <Button type="button" onClick={generatePdf} disabled={loading || !teacherId}>
-            {loading ? "Generating..." : "Generate PDF"}
+          <Button type="button" onClick={generatePdfFrontend} disabled={!summary}>
+            Generate PDF (Frontend)
           </Button>
 
           <Button type="button" onClick={printPdf} disabled={!pdfUrl}>
@@ -468,7 +883,7 @@ export default function BillGenerate() {
 
         {!pdfUrl ? (
           <div className="muted" style={{ marginTop: 10 }}>
-            Click “Generate PDF” to preview A4 bill.
+            Click “Generate PDF (Frontend)” to preview A4 bill.
           </div>
         ) : (
           <div
@@ -484,11 +899,7 @@ export default function BillGenerate() {
               ref={iframeRef}
               title="Bill PDF Preview"
               src={pdfUrl}
-              style={{
-                width: "100%",
-                height: "900px",
-                border: "0",
-              }}
+              style={{ width: "100%", height: "900px", border: "0" }}
             />
           </div>
         )}
@@ -511,6 +922,15 @@ function Stat({ title, value }) {
         {title}
       </div>
       <div style={{ fontSize: 22, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
+
+function RowLine({ label, value, strong }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+      <div style={{ fontWeight: strong ? 900 : 600 }}>{label}</div>
+      <div style={{ fontWeight: strong ? 950 : 700 }}>{value}</div>
     </div>
   );
 }
