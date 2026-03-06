@@ -5,11 +5,24 @@ import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
 import toast from "react-hot-toast";
 
+import instituteLogo from "../assets/logo.jpg";
+
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 function ymNow() {
   return new Date().toISOString().slice(0, 7);
+}
+
+function formatYearMonthLabel(ym) {
+  if (!ym) return "";
+  const [year, month] = String(ym).split("-");
+  const d = new Date(Number(year), Number(month) - 1, 1);
+
+  return d.toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function asNum(v) {
@@ -71,8 +84,11 @@ export default function BillGenerate() {
   const [pdfUrl, setPdfUrl] = useState("");
   const iframeRef = useRef(null);
 
+  const pdfTitle = "Sipsewana Teacher Payment Statement";
+  const monthLabel = useMemo(() => formatYearMonthLabel(yearMonth), [yearMonth]);
+
   // -----------------------------
-  // UI Styles (NEW)
+  // UI Styles
   // -----------------------------
   const panelStyle = {
     border: "1px solid rgba(0,0,0,0.08)",
@@ -174,6 +190,7 @@ export default function BillGenerate() {
   function addAdj1(type) {
     setAdjSection1((prev) => [...prev, { type, amount: 0, note: "" }]);
   }
+
   function addAdj2(type) {
     setAdjSection2((prev) => [...prev, { type, amount: 0, note: "" }]);
   }
@@ -183,6 +200,7 @@ export default function BillGenerate() {
       prev.map((x, idx) => (idx === i ? { ...x, ...patch } : x))
     );
   }
+
   function updateAdj2(i, patch) {
     setAdjSection2((prev) =>
       prev.map((x, idx) => (idx === i ? { ...x, ...patch } : x))
@@ -192,6 +210,7 @@ export default function BillGenerate() {
   function removeAdj1(i) {
     setAdjSection1((prev) => prev.filter((_, idx) => idx !== i));
   }
+
   function removeAdj2(i) {
     setAdjSection2((prev) => prev.filter((_, idx) => idx !== i));
   }
@@ -216,7 +235,6 @@ export default function BillGenerate() {
   const finalCalc = useMemo(() => {
     const totalIncomeAfter1 = totalsBase.totalIncomeBase + sec1.net;
 
-    // ✅ institute recalculated from institute %
     const instituteIncomeAfter1 = Math.round(
       (totalIncomeAfter1 * totalsBase.institutePct) / 100
     );
@@ -233,7 +251,7 @@ export default function BillGenerate() {
   }, [totalsBase, sec1, sec2]);
 
   // -----------------------------
-  // SAVE BILL (NEW) - teacherId + yearMonth unique (backend should enforce)
+  // SAVE BILL
   // -----------------------------
   async function saveBill() {
     if (!teacherId || !yearMonth) {
@@ -250,6 +268,7 @@ export default function BillGenerate() {
       const payload = {
         teacherId: String(teacherId),
         yearMonth: String(yearMonth),
+        monthLabel,
         subjectId: subjectId ? String(subjectId) : null,
 
         institutePct: totalsBase.institutePct,
@@ -279,7 +298,6 @@ export default function BillGenerate() {
         rows: summary?.rows ?? [],
       };
 
-      // ✅ example endpoint (adjust to your backend)
       await apiFetch("/teacher-bills", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -295,7 +313,7 @@ export default function BillGenerate() {
   }
 
   // -----------------------------
-  // FRONTEND PDF GENERATION (NO backend)
+  // FRONTEND PDF GENERATION
   // -----------------------------
   function generatePdfFrontend() {
     if (!summary) {
@@ -314,46 +332,92 @@ export default function BillGenerate() {
     const clean2 = cleanAdjustments(adjSection2);
 
     const doc = new jsPDF("p", "pt", "a4");
-
     const pageWidth = doc.internal.pageSize.getWidth();
-    let y = 40;
+    const sideMargin = 40;
+    const contentWidth = pageWidth - sideMargin * 2;
+    let y = 32;
 
-    // Title
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("Teacher Payment Bill", pageWidth / 2, y, { align: "center" });
-
-    y += 20;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.text(`Month: ${yearMonth}`, 40, y);
-    y += 16;
-    doc.text(
-      `Teacher: ${
-        teacher?.fullName ?? teacher?.name ?? `Teacher #${teacherId}`
-      }`,
-      40,
-      y
-    );
-    y += 16;
-    if (subject) {
-      doc.text(`Subject: ${subject.name}`, 40, y);
-      y += 16;
+    // Logo
+    try {
+      doc.addImage(instituteLogo, "JPEG", sideMargin, y, 56, 56);
+    } catch (err) {
+      try {
+        doc.addImage(instituteLogo, "PNG", sideMargin, y, 56, 56);
+      } catch (err2) {
+        console.warn("Logo could not be added to PDF", err2);
+      }
     }
 
-    y += 10;
+    // Header
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text(pdfTitle, pageWidth / 2, y + 18, { align: "center" });
 
-    // Summary block
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text("Puttalam Road, Hanhamuna Junction, Maspotha", pageWidth / 2, y + 38, {
+      align: "center",
+    });
+    doc.text("Puttalam Road, Hanhamuna Junction, Maspotha", pageWidth / 2, y + 38, {
+      align: "center",
+    });
+
+    y += 72;
+
+    // Teacher + month highlighted table
+    autoTable(doc, {
+      startY: y,
+      margin: { left: sideMargin, right: sideMargin },
+      tableWidth: contentWidth,
+      theme: "grid",
+      styles: {
+        fontSize: 11,
+        cellPadding: 8,
+        lineColor: [120, 120, 120],
+        lineWidth: 0.6,
+        valign: "middle",
+      },
+      bodyStyles: {
+        fontStyle: "bold",
+      },
+      columnStyles: {
+        0: { cellWidth: 120, fontStyle: "bold" },
+        1: { cellWidth: contentWidth / 2 - 60, fontSize: 11 },
+        2: { cellWidth: 120, fontStyle: "bold" },
+        3: { cellWidth: contentWidth / 2 - 60, fontSize: 11 },
+      },
+      body: [
+        [
+          "Teacher Name",
+          teacher?.fullName ?? teacher?.name ?? `Teacher #${teacherId}`,
+          "Month",
+          monthLabel,
+        ],
+    
+      ],
+    });
+
+    y = doc.lastAutoTable.finalY + 18;
+
+    // Summary
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("Summary", 40, y);
+    doc.text("Summary", sideMargin, y);
     y += 8;
 
     autoTable(doc, {
       startY: y,
-      margin: { left: 40, right: 40 },
+      margin: { left: sideMargin, right: sideMargin },
+      tableWidth: contentWidth,
       theme: "grid",
-      styles: { fontSize: 10 },
+      styles: {
+        fontSize: 10,
+        cellPadding: 6,
+        valign: "middle",
+      },
+      headStyles: {
+        fontStyle: "bold",
+      },
       head: [["Item", "Value"]],
       body: [
         ["Total Students", String(summary?.totals?.totalStudents ?? 0)],
@@ -365,72 +429,101 @@ export default function BillGenerate() {
         ["Institute % (from totals)", `${totalsBase.institutePct}%`],
       ],
       columnStyles: {
-        0: { cellWidth: 260 },
-        1: { cellWidth: 220, halign: "right" },
+        0: { cellWidth: contentWidth * 0.62 },
+        1: { cellWidth: contentWidth * 0.38, halign: "right" },
       },
     });
 
     y = doc.lastAutoTable.finalY + 18;
 
-    // Adjustments Section 1
+    // Section 1
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("Section 1 Adjustments (affects Total Income)", 40, y);
+    doc.text("Section 1 Adjustments (Affects Total Income)", sideMargin, y);
     y += 8;
 
     autoTable(doc, {
       startY: y,
-      margin: { left: 40, right: 40 },
+      margin: { left: sideMargin, right: sideMargin },
+      tableWidth: contentWidth,
       theme: "grid",
-      styles: { fontSize: 10 },
+      styles: {
+        fontSize: 10,
+        cellPadding: 6,
+        overflow: "linebreak",
+        valign: "middle",
+      },
+      headStyles: {
+        fontStyle: "bold",
+      },
       head: [["Type", "Amount", "Note"]],
       body: clean1.length
         ? clean1.map((a) => [a.type.toUpperCase(), money(a.amount), a.note || "-"])
         : [["-", "0", "No adjustments"]],
       columnStyles: {
-        0: { cellWidth: 80 },
-        1: { cellWidth: 100, halign: "right" },
-        2: { cellWidth: 300 },
-      },
-    });
-
-    y = doc.lastAutoTable.finalY + 14;
-
-    // Adjustments Section 2
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text("Section 2 Adjustments (affects Teacher Total)", 40, y);
-    y += 8;
-
-    autoTable(doc, {
-      startY: y,
-      margin: { left: 40, right: 40 },
-      theme: "grid",
-      styles: { fontSize: 10 },
-      head: [["Type", "Amount", "Note"]],
-      body: clean2.length
-        ? clean2.map((a) => [a.type.toUpperCase(), money(a.amount), a.note || "-"])
-        : [["-", "0", "No adjustments"]],
-      columnStyles: {
-        0: { cellWidth: 80 },
-        1: { cellWidth: 100, halign: "right" },
-        2: { cellWidth: 300 },
+        0: { cellWidth: contentWidth * 0.18, halign: "center" },
+        1: { cellWidth: contentWidth * 0.22, halign: "right" },
+        2: { cellWidth: contentWidth * 0.6 },
       },
     });
 
     y = doc.lastAutoTable.finalY + 16;
 
-    // Total balance (final values)
+    // Section 2
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("Total Balance (Final values used)", 40, y);
+    doc.text("Section 2 Adjustments (Affects Teacher Total)", sideMargin, y);
     y += 8;
 
     autoTable(doc, {
       startY: y,
-      margin: { left: 40, right: 40 },
+      margin: { left: sideMargin, right: sideMargin },
+      tableWidth: contentWidth,
       theme: "grid",
-      styles: { fontSize: 10 },
+      styles: {
+        fontSize: 10,
+        cellPadding: 6,
+        overflow: "linebreak",
+        valign: "middle",
+      },
+      headStyles: {
+        fontStyle: "bold",
+      },
+      head: [["Type", "Amount", "Note"]],
+      body: clean2.length
+        ? clean2.map((a) => [a.type.toUpperCase(), money(a.amount), a.note || "-"])
+        : [["-", "0", "No adjustments"]],
+      columnStyles: {
+        0: { cellWidth: contentWidth * 0.18, halign: "center" },
+        1: { cellWidth: contentWidth * 0.22, halign: "right" },
+        2: { cellWidth: contentWidth * 0.6 },
+      },
+    });
+
+    y = doc.lastAutoTable.finalY + 16;
+
+    // Final Payment Calculation
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Final Payment Calculation", sideMargin, y);
+    y += 8;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: sideMargin, right: sideMargin },
+      tableWidth: contentWidth,
+      theme: "grid",
+      styles: {
+        fontSize: 10,
+        cellPadding: 6,
+        valign: "middle",
+      },
+      headStyles: {
+        fontStyle: "bold",
+      },
+      bodyStyles: {
+        fontStyle: "normal",
+      },
       head: [["Item", "Value"]],
       body: [
         ["Total Income (Base)", money(totalsBase.totalIncomeBase)],
@@ -445,20 +538,26 @@ export default function BillGenerate() {
           money(finalCalc.teacherBaseAfterInstitute),
         ],
         ["Section 2 Net", money(sec2.net)],
-        ["✅ Final Teacher Total", money(finalCalc.finalTeacherTotal)],
+        ["Final Teacher Payment", money(finalCalc.finalTeacherTotal)],
       ],
       columnStyles: {
-        0: { cellWidth: 320 },
-        1: { cellWidth: 160, halign: "right" },
+        0: { cellWidth: contentWidth * 0.62 },
+        1: { cellWidth: contentWidth * 0.38, halign: "right" },
+      },
+      didParseCell(data) {
+        if (data.section === "body" && data.row.index === 6) {
+          data.cell.styles.fontStyle = "bold";
+          data.cell.styles.fontSize = 12;
+        }
       },
     });
 
     y = doc.lastAutoTable.finalY + 18;
 
-    // Class-wise breakdown table
+    // Class-wise breakdown
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("Class-wise Breakdown", 40, y);
+    doc.text("Class-wise Breakdown", sideMargin, y);
     y += 8;
 
     const rows = (summary?.rows ?? []).map((r) => [
@@ -475,16 +574,18 @@ export default function BillGenerate() {
 
     autoTable(doc, {
       startY: y,
-      margin: { left: 40, right: 40 },
-      tableWidth: "auto",
+      margin: { left: sideMargin, right: sideMargin },
+      tableWidth: contentWidth,
       theme: "grid",
       styles: {
         fontSize: 8,
-        cellPadding: 3,
+        cellPadding: 4,
         overflow: "linebreak",
         valign: "middle",
       },
-      headStyles: { fontStyle: "bold" },
+      headStyles: {
+        fontStyle: "bold",
+      },
       head: [
         [
           "Class",
@@ -492,29 +593,28 @@ export default function BillGenerate() {
           "Tot",
           "Paid",
           "Free",
-          "Not",
+          "Not Paid",
           "Income",
-          "Inst",
-          "Teach",
+          "Institute",
+          "Teacher",
         ],
       ],
       body: rows.length
         ? rows
         : [["-", "-", "-", "-", "-", "-", "-", "-", "-"]],
       columnStyles: {
-        0: { cellWidth: 170 },
-        1: { cellWidth: 45, halign: "center" },
-        2: { cellWidth: 35, halign: "center" },
-        3: { cellWidth: 35, halign: "center" },
-        4: { cellWidth: 35, halign: "center" },
-        5: { cellWidth: 40, halign: "center" },
-        6: { cellWidth: 55, halign: "right" },
-        7: { cellWidth: 50, halign: "right" },
-        8: { cellWidth: 45, halign: "right" },
+        0: { cellWidth: contentWidth * 0.26 },
+        1: { cellWidth: contentWidth * 0.09, halign: "center" },
+        2: { cellWidth: contentWidth * 0.07, halign: "center" },
+        3: { cellWidth: contentWidth * 0.07, halign: "center" },
+        4: { cellWidth: contentWidth * 0.07, halign: "center" },
+        5: { cellWidth: contentWidth * 0.09, halign: "center" },
+        6: { cellWidth: contentWidth * 0.12, halign: "right" },
+        7: { cellWidth: contentWidth * 0.12, halign: "right" },
+        8: { cellWidth: contentWidth * 0.11, halign: "right" },
       },
     });
 
-    // make blob url for preview
     const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);
 
@@ -523,7 +623,7 @@ export default function BillGenerate() {
       return url;
     });
 
-    toast.success("PDF generated (frontend).");
+    toast.success("PDF generated.");
   }
 
   function printPdf() {
@@ -559,11 +659,11 @@ export default function BillGenerate() {
   // -----------------------------
   return (
     <div className="grid gap-4">
-      <Card title="Bill Generate (Teacher)">
+      <Card title="Sipsewana Teacher Payment Statement">
         <div
           className="grid"
           style={{
-            gridTemplateColumns: "1fr 1fr 1fr auto",
+            gridTemplateColumns: "1fr 1fr auto",
             gap: 12,
             alignItems: "end",
           }}
@@ -602,7 +702,10 @@ export default function BillGenerate() {
           </Button>
         </div>
 
-        {/* ACTION BAR (NEW): Save button above summary */}
+        <div className="muted" style={{ marginTop: 10, fontSize: 14 }}>
+          Statement Month: <strong>{monthLabel}</strong>
+        </div>
+
         <div className="row" style={{ gap: 10, marginTop: 14 }}>
           <Button
             type="button"
@@ -617,7 +720,7 @@ export default function BillGenerate() {
             onClick={generatePdfFrontend}
             disabled={!summary}
           >
-            Generate PDF (Frontend)
+            Generate PDF
           </Button>
 
           <Button type="button" onClick={printPdf} disabled={!pdfUrl}>
@@ -636,7 +739,6 @@ export default function BillGenerate() {
           ) : null}
         </div>
 
-        {/* Base totals */}
         <div
           style={{
             marginTop: 12,
@@ -645,12 +747,21 @@ export default function BillGenerate() {
             gap: 12,
           }}
         >
-          <Stat title="Total Students" value={summary?.totals?.totalStudents ?? 0} />
+          <Stat
+            title="Total Students"
+            value={summary?.totals?.totalStudents ?? 0}
+          />
           <Stat title="Paid" value={summary?.totals?.paidCount ?? 0} />
           <Stat title="Free" value={summary?.totals?.freeCount ?? 0} />
           <Stat title="Not Paid" value={summary?.totals?.notPaidCount ?? 0} />
-          <Stat title="Total Income (Base)" value={money(totalsBase.totalIncomeBase)} />
-          <Stat title="Institute Income (Base)" value={money(totalsBase.instituteIncomeBase)} />
+          <Stat
+            title="Total Income (Base)"
+            value={money(totalsBase.totalIncomeBase)}
+          />
+          <Stat
+            title="Institute Income (Base)"
+            value={money(totalsBase.instituteIncomeBase)}
+          />
         </div>
 
         {/* SECTION 1 */}
@@ -744,7 +855,9 @@ export default function BillGenerate() {
                     <Input
                       type="number"
                       value={a.amount}
-                      onChange={(e) => updateAdj1(i, { amount: e.target.value })}
+                      onChange={(e) =>
+                        updateAdj1(i, { amount: e.target.value })
+                      }
                       placeholder="Amount"
                     />
 
@@ -852,7 +965,9 @@ export default function BillGenerate() {
                     <Input
                       type="number"
                       value={a.amount}
-                      onChange={(e) => updateAdj2(i, { amount: e.target.value })}
+                      onChange={(e) =>
+                        updateAdj2(i, { amount: e.target.value })
+                      }
                       placeholder="Amount"
                     />
 
@@ -879,8 +994,7 @@ export default function BillGenerate() {
         </div>
       </Card>
 
-      {/* TOTAL BALANCE */}
-      <Card title="Total Balance — Final values used in PDF">
+      <Card title="Final Payment Summary">
         <div
           style={{
             border: "1px solid rgba(0,0,0,0.08)",
@@ -891,12 +1005,18 @@ export default function BillGenerate() {
             gap: 8,
           }}
         >
-          <RowLine label="Total Income (Base)" value={money(totalsBase.totalIncomeBase)} />
+          <RowLine
+            label="Total Income (Base)"
+            value={money(totalsBase.totalIncomeBase)}
+          />
           <RowLine label="Section 1 Net" value={money(sec1.net)} />
 
           <div style={{ height: 10 }} />
 
-          <RowLine label="Total Income (After Section 1)" value={money(finalCalc.totalIncomeAfter1)} />
+          <RowLine
+            label="Total Income (After Section 1)"
+            value={money(finalCalc.totalIncomeAfter1)}
+          />
           <RowLine
             label={`Institute Income (Recalculated ${totalsBase.institutePct}%)`}
             value={money(finalCalc.instituteIncomeAfter1)}
@@ -909,16 +1029,20 @@ export default function BillGenerate() {
 
           <div style={{ height: 10 }} />
 
-          <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
-            <div style={{ fontWeight: 900 }}>✅ Final Teacher Total</div>
+          <div
+            className="row"
+            style={{ justifyContent: "space-between", gap: 10 }}
+          >
+            <div style={{ fontWeight: 900 }}>Final Teacher Payment</div>
             <div style={{ minWidth: 240, textAlign: "right" }}>
-              <div style={highlightTotalStyle}>{money(finalCalc.finalTeacherTotal)}</div>
+              <div style={highlightTotalStyle}>
+                {money(finalCalc.finalTeacherTotal)}
+              </div>
             </div>
           </div>
         </div>
       </Card>
 
-      {/* Class-wise */}
       <Card title="Class-wise Breakdown">
         <div className="tableWrap" style={{ overflowX: "auto" }}>
           <table className="table" style={{ minWidth: 1100 }}>
@@ -961,11 +1085,10 @@ export default function BillGenerate() {
         </div>
       </Card>
 
-      {/* PDF Preview */}
-      <Card title="A4 PDF Preview & Print">
+      <Card title="A4 Payment Statement Preview & Print">
         {!pdfUrl ? (
           <div className="muted">
-            Click “Generate PDF (Frontend)” above to preview A4 bill.
+            Click “Generate PDF” above to preview the A4 payment statement.
           </div>
         ) : (
           <div
