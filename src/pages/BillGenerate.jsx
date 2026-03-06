@@ -72,6 +72,38 @@ export default function BillGenerate() {
   const iframeRef = useRef(null);
 
   // -----------------------------
+  // UI Styles (NEW)
+  // -----------------------------
+  const panelStyle = {
+    border: "1px solid rgba(0,0,0,0.08)",
+    borderRadius: 18,
+    padding: 14,
+    background: "linear-gradient(180deg, #ffffff, #fafafa)",
+    boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
+    display: "grid",
+    gap: 10,
+  };
+
+  const badgeStyle = {
+    display: "inline-block",
+    padding: "4px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 800,
+    background: "rgba(0,0,0,0.06)",
+  };
+
+  const highlightTotalStyle = {
+    padding: "10px 14px",
+    borderRadius: 16,
+    background:
+      "linear-gradient(90deg, rgba(34,197,94,0.12), rgba(34,197,94,0.04))",
+    border: "1px solid rgba(34,197,94,0.28)",
+    fontWeight: 950,
+    fontSize: 24,
+  };
+
+  // -----------------------------
   // Load teachers + subjects
   // -----------------------------
   async function loadRefs() {
@@ -201,6 +233,68 @@ export default function BillGenerate() {
   }, [totalsBase, sec1, sec2]);
 
   // -----------------------------
+  // SAVE BILL (NEW) - teacherId + yearMonth unique (backend should enforce)
+  // -----------------------------
+  async function saveBill() {
+    if (!teacherId || !yearMonth) {
+      toast.error("Select teacher and month.");
+      return;
+    }
+    if (!summary) {
+      toast.error("Summary not loaded yet.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const payload = {
+        teacherId: String(teacherId),
+        yearMonth: String(yearMonth),
+        subjectId: subjectId ? String(subjectId) : null,
+
+        institutePct: totalsBase.institutePct,
+
+        totalsBase: {
+          totalIncomeBase: asNum(totalsBase.totalIncomeBase),
+          instituteIncomeBase: asNum(totalsBase.instituteIncomeBase),
+        },
+
+        section1: {
+          items: cleanAdjustments(adjSection1),
+          net: asNum(sec1.net),
+        },
+
+        section2: {
+          items: cleanAdjustments(adjSection2),
+          net: asNum(sec2.net),
+        },
+
+        final: {
+          totalIncomeAfter1: asNum(finalCalc.totalIncomeAfter1),
+          instituteIncomeAfter1: asNum(finalCalc.instituteIncomeAfter1),
+          teacherBaseAfterInstitute: asNum(finalCalc.teacherBaseAfterInstitute),
+          finalTeacherTotal: asNum(finalCalc.finalTeacherTotal),
+        },
+
+        rows: summary?.rows ?? [],
+      };
+
+      // ✅ example endpoint (adjust to your backend)
+      await apiFetch("/teacher-bills", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      toast.success("Bill saved successfully.");
+    } catch (e) {
+      toast.error(e?.message || "Save failed. If already saved, try Update.");
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // -----------------------------
   // FRONTEND PDF GENERATION (NO backend)
   // -----------------------------
   function generatePdfFrontend() {
@@ -234,7 +328,13 @@ export default function BillGenerate() {
     doc.setFontSize(11);
     doc.text(`Month: ${yearMonth}`, 40, y);
     y += 16;
-    doc.text(`Teacher: ${teacher?.fullName ?? teacher?.name ?? `Teacher #${teacherId}`}`, 40, y);
+    doc.text(
+      `Teacher: ${
+        teacher?.fullName ?? teacher?.name ?? `Teacher #${teacherId}`
+      }`,
+      40,
+      y
+    );
     y += 16;
     if (subject) {
       doc.text(`Subject: ${subject.name}`, 40, y);
@@ -285,11 +385,7 @@ export default function BillGenerate() {
       styles: { fontSize: 10 },
       head: [["Type", "Amount", "Note"]],
       body: clean1.length
-        ? clean1.map((a) => [
-            a.type.toUpperCase(),
-            money(a.amount),
-            a.note || "-",
-          ])
+        ? clean1.map((a) => [a.type.toUpperCase(), money(a.amount), a.note || "-"])
         : [["-", "0", "No adjustments"]],
       columnStyles: {
         0: { cellWidth: 80 },
@@ -313,11 +409,7 @@ export default function BillGenerate() {
       styles: { fontSize: 10 },
       head: [["Type", "Amount", "Note"]],
       body: clean2.length
-        ? clean2.map((a) => [
-            a.type.toUpperCase(),
-            money(a.amount),
-            a.note || "-",
-          ])
+        ? clean2.map((a) => [a.type.toUpperCase(), money(a.amount), a.note || "-"])
         : [["-", "0", "No adjustments"]],
       columnStyles: {
         0: { cellWidth: 80 },
@@ -348,7 +440,10 @@ export default function BillGenerate() {
           `Institute Income (Recalculated ${totalsBase.institutePct}%)`,
           money(finalCalc.instituteIncomeAfter1),
         ],
-        ["Teacher Base (After Institute)", money(finalCalc.teacherBaseAfterInstitute)],
+        [
+          "Teacher Base (After Institute)",
+          money(finalCalc.teacherBaseAfterInstitute),
+        ],
         ["Section 2 Net", money(sec2.net)],
         ["✅ Final Teacher Total", money(finalCalc.finalTeacherTotal)],
       ],
@@ -360,63 +455,64 @@ export default function BillGenerate() {
 
     y = doc.lastAutoTable.finalY + 18;
 
-    /// Class-wise breakdown table
-doc.setFont("helvetica", "bold");
-doc.setFontSize(12);
-doc.text("Class-wise Breakdown", 40, y);
-y += 8;
+    // Class-wise breakdown table
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Class-wise Breakdown", 40, y);
+    y += 8;
 
-const rows = (summary?.rows ?? []).map((r) => [
-  r.className,
-  `${asNum(r.institutePercentage)}%`,
-  String(asNum(r.totalStudents)),
-  String(asNum(r.paidCount)),
-  String(asNum(r.freeCount)),
-  String(asNum(r.notPaidCount)),
-  money(r.totalIncome),
-  money(r.instituteIncome),
-  money(r.teacherIncome),
-]);
+    const rows = (summary?.rows ?? []).map((r) => [
+      r.className,
+      `${asNum(r.institutePercentage)}%`,
+      String(asNum(r.totalStudents)),
+      String(asNum(r.paidCount)),
+      String(asNum(r.freeCount)),
+      String(asNum(r.notPaidCount)),
+      money(r.totalIncome),
+      money(r.instituteIncome),
+      money(r.teacherIncome),
+    ]);
 
-autoTable(doc, {
-  startY: y,
-  margin: { left: 40, right: 40 },
-  tableWidth: "auto",              // ✅ let it fit inside page
-  theme: "grid",
-  styles: {
-    fontSize: 8,                    // ✅ smaller text
-    cellPadding: 3,                 // ✅ smaller padding
-    overflow: "linebreak",          // ✅ wrap long text
-    valign: "middle",
-  },
-  headStyles: { fontStyle: "bold" },
-  head: [[
-    "Class",
-    "Inst %",
-    "Tot",
-    "Paid",
-    "Free",
-    "Not",
-    "Income",
-    "Inst",
-    "Teach",
-  ]],
-  body: rows.length ? rows : [["-", "-", "-", "-", "-", "-", "-", "-", "-"]],
-
-  // ✅ widths adjusted to fit A4 (595pt) with margins (40+40)
-  // printable width ≈ 515pt, these sum ≈ 510pt
-  columnStyles: {
-    0: { cellWidth: 170 },              // Class
-    1: { cellWidth: 45, halign: "center" }, // Inst %
-    2: { cellWidth: 35, halign: "center" }, // Tot
-    3: { cellWidth: 35, halign: "center" }, // Paid
-    4: { cellWidth: 35, halign: "center" }, // Free
-    5: { cellWidth: 40, halign: "center" }, // Not
-    6: { cellWidth: 55, halign: "right" },  // Income
-    7: { cellWidth: 50, halign: "right" },  // Inst
-    8: { cellWidth: 45, halign: "right" },  // Teach
-  },
-});
+    autoTable(doc, {
+      startY: y,
+      margin: { left: 40, right: 40 },
+      tableWidth: "auto",
+      theme: "grid",
+      styles: {
+        fontSize: 8,
+        cellPadding: 3,
+        overflow: "linebreak",
+        valign: "middle",
+      },
+      headStyles: { fontStyle: "bold" },
+      head: [
+        [
+          "Class",
+          "Inst %",
+          "Tot",
+          "Paid",
+          "Free",
+          "Not",
+          "Income",
+          "Inst",
+          "Teach",
+        ],
+      ],
+      body: rows.length
+        ? rows
+        : [["-", "-", "-", "-", "-", "-", "-", "-", "-"]],
+      columnStyles: {
+        0: { cellWidth: 170 },
+        1: { cellWidth: 45, halign: "center" },
+        2: { cellWidth: 35, halign: "center" },
+        3: { cellWidth: 35, halign: "center" },
+        4: { cellWidth: 35, halign: "center" },
+        5: { cellWidth: 40, halign: "center" },
+        6: { cellWidth: 55, halign: "right" },
+        7: { cellWidth: 50, halign: "right" },
+        8: { cellWidth: 45, halign: "right" },
+      },
+    });
 
     // make blob url for preview
     const blob = doc.output("blob");
@@ -525,6 +621,40 @@ autoTable(doc, {
           </Button>
         </div>
 
+        {/* ACTION BAR (NEW): Save button above summary */}
+        <div className="row" style={{ gap: 10, marginTop: 14 }}>
+          <Button
+            type="button"
+            onClick={saveBill}
+            disabled={loading || !summary || !teacherId || !yearMonth}
+          >
+            {loading ? "Saving..." : "Save Bill"}
+          </Button>
+
+          <Button
+            type="button"
+            onClick={generatePdfFrontend}
+            disabled={!summary}
+          >
+            Generate PDF (Frontend)
+          </Button>
+
+          <Button type="button" onClick={printPdf} disabled={!pdfUrl}>
+            Print
+          </Button>
+
+          {pdfUrl ? (
+            <a
+              className="linkBtn"
+              href={pdfUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open PDF
+            </a>
+          ) : null}
+        </div>
+
         {/* Base totals */}
         <div
           style={{
@@ -534,10 +664,7 @@ autoTable(doc, {
             gap: 12,
           }}
         >
-          <Stat
-            title="Total Students"
-            value={summary?.totals?.totalStudents ?? 0}
-          />
+          <Stat title="Total Students" value={summary?.totals?.totalStudents ?? 0} />
           <Stat title="Paid" value={summary?.totals?.paidCount ?? 0} />
           <Stat title="Free" value={summary?.totals?.freeCount ?? 0} />
           <Stat title="Not Paid" value={summary?.totals?.notPaidCount ?? 0} />
@@ -547,20 +674,17 @@ autoTable(doc, {
 
         {/* SECTION 1 */}
         <div style={{ marginTop: 14 }}>
-          <div className="muted" style={{ marginBottom: 6 }}>
-            Section 1 — Add/Deduct affects Total Income, Institute recalculated by Institute %
-          </div>
+          <div style={panelStyle}>
+            <div
+              className="row"
+              style={{ justifyContent: "space-between", marginBottom: 4 }}
+            >
+              <div style={badgeStyle}>SECTION 1</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Affects Total Income • Institute recalculated by %
+              </div>
+            </div>
 
-          <div
-            style={{
-              border: "1px solid rgba(0,0,0,0.08)",
-              borderRadius: 14,
-              padding: 12,
-              background: "#fff",
-              display: "grid",
-              gap: 10,
-            }}
-          >
             <div
               style={{
                 display: "grid",
@@ -630,9 +754,7 @@ autoTable(doc, {
                     <select
                       className="input"
                       value={a.type}
-                      onChange={(e) =>
-                        updateAdj1(i, { type: e.target.value })
-                      }
+                      onChange={(e) => updateAdj1(i, { type: e.target.value })}
                     >
                       <option value="add">ADD</option>
                       <option value="deduct">DEDUCT</option>
@@ -641,17 +763,13 @@ autoTable(doc, {
                     <Input
                       type="number"
                       value={a.amount}
-                      onChange={(e) =>
-                        updateAdj1(i, { amount: e.target.value })
-                      }
+                      onChange={(e) => updateAdj1(i, { amount: e.target.value })}
                       placeholder="Amount"
                     />
 
                     <Input
                       value={a.note}
-                      onChange={(e) =>
-                        updateAdj1(i, { note: e.target.value })
-                      }
+                      onChange={(e) => updateAdj1(i, { note: e.target.value })}
                       placeholder="Note (ex: Travel / Bonus / Penalty...)"
                     />
 
@@ -673,20 +791,17 @@ autoTable(doc, {
 
         {/* SECTION 2 */}
         <div style={{ marginTop: 14 }}>
-          <div className="muted" style={{ marginBottom: 6 }}>
-            Section 2 — Add/Deduct applied directly to Final Teacher Total
-          </div>
+          <div style={panelStyle}>
+            <div
+              className="row"
+              style={{ justifyContent: "space-between", marginBottom: 4 }}
+            >
+              <div style={badgeStyle}>SECTION 2</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Directly affects Teacher Total
+              </div>
+            </div>
 
-          <div
-            style={{
-              border: "1px solid rgba(0,0,0,0.08)",
-              borderRadius: 14,
-              padding: 12,
-              background: "#fff",
-              display: "grid",
-              gap: 10,
-            }}
-          >
             <div
               style={{
                 display: "grid",
@@ -717,7 +832,7 @@ autoTable(doc, {
                 <div className="muted" style={{ fontSize: 12 }}>
                   Final Teacher Total
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 950 }}>
+                <div style={highlightTotalStyle}>
                   {money(finalCalc.finalTeacherTotal)}
                 </div>
               </div>
@@ -747,9 +862,7 @@ autoTable(doc, {
                     <select
                       className="input"
                       value={a.type}
-                      onChange={(e) =>
-                        updateAdj2(i, { type: e.target.value })
-                      }
+                      onChange={(e) => updateAdj2(i, { type: e.target.value })}
                     >
                       <option value="add">ADD</option>
                       <option value="deduct">DEDUCT</option>
@@ -758,17 +871,13 @@ autoTable(doc, {
                     <Input
                       type="number"
                       value={a.amount}
-                      onChange={(e) =>
-                        updateAdj2(i, { amount: e.target.value })
-                      }
+                      onChange={(e) => updateAdj2(i, { amount: e.target.value })}
                       placeholder="Amount"
                     />
 
                     <Input
                       value={a.note}
-                      onChange={(e) =>
-                        updateAdj2(i, { note: e.target.value })
-                      }
+                      onChange={(e) => updateAdj2(i, { note: e.target.value })}
                       placeholder="Note (ex: Bonus / Penalty...)"
                     />
 
@@ -811,12 +920,20 @@ autoTable(doc, {
             label={`Institute Income (Recalculated ${totalsBase.institutePct}%)`}
             value={money(finalCalc.instituteIncomeAfter1)}
           />
-          <RowLine label="Teacher Base (After Institute)" value={money(finalCalc.teacherBaseAfterInstitute)} />
+          <RowLine
+            label="Teacher Base (After Institute)"
+            value={money(finalCalc.teacherBaseAfterInstitute)}
+          />
           <RowLine label="Section 2 Net" value={money(sec2.net)} />
 
           <div style={{ height: 10 }} />
 
-          <RowLine label="✅ Final Teacher Total" value={money(finalCalc.finalTeacherTotal)} strong />
+          <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+            <div style={{ fontWeight: 900 }}>✅ Final Teacher Total</div>
+            <div style={{ minWidth: 240, textAlign: "right" }}>
+              <div style={highlightTotalStyle}>{money(finalCalc.finalTeacherTotal)}</div>
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -865,25 +982,9 @@ autoTable(doc, {
 
       {/* PDF Preview */}
       <Card title="A4 PDF Preview & Print">
-        <div className="row" style={{ gap: 10 }}>
-          <Button type="button" onClick={generatePdfFrontend} disabled={!summary}>
-            Generate PDF (Frontend)
-          </Button>
-
-          <Button type="button" onClick={printPdf} disabled={!pdfUrl}>
-            Print
-          </Button>
-
-          {pdfUrl ? (
-            <a className="linkBtn" href={pdfUrl} target="_blank" rel="noreferrer">
-              Open in new tab
-            </a>
-          ) : null}
-        </div>
-
         {!pdfUrl ? (
-          <div className="muted" style={{ marginTop: 10 }}>
-            Click “Generate PDF (Frontend)” to preview A4 bill.
+          <div className="muted">
+            Click “Generate PDF (Frontend)” above to preview A4 bill.
           </div>
         ) : (
           <div

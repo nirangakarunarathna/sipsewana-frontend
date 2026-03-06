@@ -6,37 +6,12 @@ import Button from "../ui/Button.jsx";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
-// async function apiFetch(path, options = {}) {
-//   const res = await fetch(`${API_BASE}${path}`, {
-//     headers: {
-//       "Content-Type": "application/json",
-//       ...(options.headers || {}),
-//     },
-//     ...options,
-//   });
-
-//   const text = await res.text();
-//   const data = text
-//     ? (() => {
-//         try {
-//           return JSON.parse(text);
-//         } catch {
-//           return text;
-//         }
-//       })()
-//     : null;
-
-//   if (!res.ok) {
-//     const msg =
-//       (data && typeof data === "object" && (data.message || data.error)) ||
-//       (typeof data === "string" ? data : "Request failed");
-//     throw new Error(msg);
-//   }
-//   return data;
-// }
-
 function ymNow() {
   return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
 function fmtDateShort(d) {
@@ -95,20 +70,17 @@ function getClassFee(cls) {
 }
 
 export default function AttendanceMarkTable() {
-  // selectors
   const [classes, setClasses] = useState([]);
   const [classId, setClassId] = useState("");
   const [yearMonth, setYearMonth] = useState(ymNow());
 
-  // loaded
   const [sessions, setSessions] = useState([]);
   const [students, setStudents] = useState([]);
-  const [grid, setGrid] = useState({}); // { [studentId]: { [sessionId]: boolean } }
+  const [grid, setGrid] = useState({});
 
-  // payment + free flag (per student per month)
-  const [payments, setPayments] = useState({}); // { [studentId]: { paid: boolean, amount: number, free: boolean } }
+  const [payments, setPayments] = useState({});
+  // { [studentId]: { paid: boolean, amount: number, free: boolean, feeRemaining: boolean, paidAt: string } }
 
-  // states
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [loadingGrid, setLoadingGrid] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -116,12 +88,8 @@ export default function AttendanceMarkTable() {
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  // track if user manually edited amount per student (so we don't override)
-  const amountTouchedRef = useRef({}); // { [studentId]: true }
+  const amountTouchedRef = useRef({});
 
-  // ----------------------------
-  // Selected class
-  // ----------------------------
   const selectedClass = useMemo(() => {
     const idNum = Number(classId);
     return classes.find((c) => Number(c.id) === idNum) || null;
@@ -135,9 +103,6 @@ export default function AttendanceMarkTable() {
     return getClassFee(selectedClass);
   }, [selectedClass]);
 
-  // ----------------------------
-  // Load classes
-  // ----------------------------
   async function loadClasses() {
     setLoadingRefs(true);
     setErrorMsg("");
@@ -153,9 +118,6 @@ export default function AttendanceMarkTable() {
     }
   }
 
-  // ----------------------------
-  // Load sessions + students + attendance + payments
-  // ----------------------------
   async function loadAttendanceGrid(selectedClassId, selectedYearMonth) {
     if (!selectedClassId || !selectedYearMonth) return;
 
@@ -195,7 +157,6 @@ export default function AttendanceMarkTable() {
       setSessions(sessList);
       setStudents(stuList);
 
-      // Build attendance grid
       const nextGrid = {};
       for (const st of stuList) {
         const sid = getStudentId(st);
@@ -212,30 +173,51 @@ export default function AttendanceMarkTable() {
       }
       setGrid(nextGrid);
 
-      // Payments map (initial) - FREE is handled ONLY via payments now
       const nextPay = {};
       for (const st of stuList) {
         const sid = getStudentId(st);
-        nextPay[sid] = { paid: false, amount: 0, free: false };
+        nextPay[sid] = {
+          paid: false,
+          amount: 0,
+          free: false,
+          feeRemaining: false,
+          paidAt: "",
+        };
       }
 
       for (const p of payList) {
         const sid = String(p.student_id ?? p.studentId);
 
-        // read free from payments API response if available (optional)
         const isFree = !!(p.isFree ?? p.is_free_student ?? p.freeStudent ?? p.free_student);
+        const paid = isFree ? false : !!(p.paid ?? p.isPaid ?? p.is_paid ?? p.status === "PAID");
+        const feeRemaining = !!(
+          p.feeRemaining ??
+          p.fee_remaining ??
+          p.hasRemaining ??
+          p.has_remaining ??
+          false
+        );
+
+        const paidAtRaw = p.paidAt ?? p.paid_at ?? "";
+        const paidAt = paidAtRaw ? String(paidAtRaw).slice(0, 10) : "";
 
         nextPay[sid] = {
-          ...(nextPay[sid] || { paid: false, amount: 0, free: false }),
+          ...(nextPay[sid] || {
+            paid: false,
+            amount: 0,
+            free: false,
+            feeRemaining: false,
+            paidAt: "",
+          }),
           free: isFree,
-          paid: isFree ? false : !!(p.paid ?? p.isPaid ?? p.is_paid ?? p.status === "PAID"),
+          paid,
           amount: isFree ? 0 : Number(p.amount ?? 0),
+          feeRemaining: isFree ? false : feeRemaining,
+          paidAt: isFree ? "" : paidAt,
         };
       }
 
       setPayments(nextPay);
-
-      // reset "touched" when reloading grid (new month/class)
       amountTouchedRef.current = {};
     } catch (e) {
       setErrorMsg(e.message || "Failed to load attendance/payments");
@@ -262,9 +244,6 @@ export default function AttendanceMarkTable() {
   const hasStudents = students.length > 0;
   const hasSessions = sessions.length > 0;
 
-  // ----------------------------
-  // AUTO-BIND CLASS FEE INTO AMOUNT INPUTS
-  // ----------------------------
   useEffect(() => {
     if (!hasStudents) return;
     if (!Number.isFinite(classFee) || classFee <= 0) return;
@@ -277,13 +256,29 @@ export default function AttendanceMarkTable() {
         const sid = getStudentId(st);
         const touched = !!amountTouchedRef.current[sid];
 
-        const cur = next[sid] || { paid: false, amount: 0, free: false };
+        const cur = next[sid] || {
+          paid: false,
+          amount: 0,
+          free: false,
+          feeRemaining: false,
+          paidAt: "",
+        };
         const curAmount = Number(cur.amount ?? 0);
 
-        // Skip free students (always amount 0)
         if (cur.free) {
-          if (cur.paid !== false || Number(cur.amount ?? 0) !== 0) {
-            next[sid] = { ...cur, paid: false, amount: 0 };
+          if (
+            cur.paid !== false ||
+            Number(cur.amount ?? 0) !== 0 ||
+            cur.feeRemaining !== false ||
+            cur.paidAt !== ""
+          ) {
+            next[sid] = {
+              ...cur,
+              paid: false,
+              amount: 0,
+              feeRemaining: false,
+              paidAt: "",
+            };
             changed = true;
           } else {
             next[sid] = cur;
@@ -304,9 +299,6 @@ export default function AttendanceMarkTable() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classFee, students]);
 
-  // ----------------------------
-  // Summary
-  // ----------------------------
   const summary = useMemo(() => {
     const totalStudents = students.length;
 
@@ -317,7 +309,6 @@ export default function AttendanceMarkTable() {
       const sid = getStudentId(st);
       const row = payments?.[sid];
       if (!row) continue;
-
       if (row.free) continue;
 
       if (row.paid) {
@@ -327,7 +318,6 @@ export default function AttendanceMarkTable() {
     }
 
     const paidPercent = totalStudents > 0 ? Math.round((paidCount / totalStudents) * 100) : 0;
-
     const instituteIncome = (Number(totalPaidAmount) * Number(institutePercentage || 0)) / 100;
 
     return {
@@ -341,9 +331,6 @@ export default function AttendanceMarkTable() {
     };
   }, [students, payments, institutePercentage, classFee]);
 
-  // ----------------------------
-  // Toggle attendance cell
-  // ----------------------------
   function toggleCell(studentId, sessionId) {
     setGrid((prev) => {
       const sid = String(studentId);
@@ -372,25 +359,42 @@ export default function AttendanceMarkTable() {
     });
   }
 
-  // ----------------------------
-  // Payment + Free helpers
-  // ----------------------------
   function setFree(studentId, free) {
     const sid = String(studentId);
 
     setPayments((prev) => {
-      const cur = prev?.[sid] || { paid: false, amount: 0, free: false };
+      const cur = prev?.[sid] || {
+        paid: false,
+        amount: 0,
+        free: false,
+        feeRemaining: false,
+        paidAt: "",
+      };
 
       if (free) {
         return {
           ...(prev || {}),
-          [sid]: { ...cur, free: true, paid: false, amount: 0 },
+          [sid]: {
+            ...cur,
+            free: true,
+            paid: false,
+            amount: 0,
+            feeRemaining: false,
+            paidAt: "",
+          },
         };
       }
 
       return {
         ...(prev || {}),
-        [sid]: { ...cur, free: false, paid: false, amount: Number(cur.amount ?? 0) },
+        [sid]: {
+          ...cur,
+          free: false,
+          paid: false,
+          amount: Number(cur.amount ?? 0) > 0 ? Number(cur.amount ?? 0) : classFee || 0,
+          feeRemaining: false,
+          paidAt: "",
+        },
       };
     });
   }
@@ -399,7 +403,13 @@ export default function AttendanceMarkTable() {
     const sid = String(studentId);
 
     setPayments((prev) => {
-      const cur = prev?.[sid] || { paid: false, amount: 0, free: false };
+      const cur = prev?.[sid] || {
+        paid: false,
+        amount: 0,
+        free: false,
+        feeRemaining: false,
+        paidAt: "",
+      };
       if (cur.free) return prev;
 
       let nextAmount = Number(cur.amount ?? 0);
@@ -409,7 +419,60 @@ export default function AttendanceMarkTable() {
 
       return {
         ...(prev || {}),
-        [sid]: { ...cur, paid: !!paid, amount: nextAmount },
+        [sid]: {
+          ...cur,
+          paid: !!paid,
+          amount: nextAmount,
+          paidAt: paid ? cur.paidAt || todayISO() : "",
+        },
+      };
+    });
+  }
+
+  function setFeeRemaining(studentId, feeRemaining) {
+    const sid = String(studentId);
+
+    setPayments((prev) => {
+      const cur = prev?.[sid] || {
+        paid: false,
+        amount: 0,
+        free: false,
+        feeRemaining: false,
+        paidAt: "",
+      };
+
+      if (cur.free) return prev;
+
+      return {
+        ...(prev || {}),
+        [sid]: {
+          ...cur,
+          feeRemaining: !!feeRemaining,
+        },
+      };
+    });
+  }
+
+  function setPaidAt(studentId, paidAt) {
+    const sid = String(studentId);
+
+    setPayments((prev) => {
+      const cur = prev?.[sid] || {
+        paid: false,
+        amount: 0,
+        free: false,
+        feeRemaining: false,
+        paidAt: "",
+      };
+
+      if (cur.free || !cur.paid) return prev;
+
+      return {
+        ...(prev || {}),
+        [sid]: {
+          ...cur,
+          paidAt,
+        },
       };
     });
   }
@@ -423,7 +486,15 @@ export default function AttendanceMarkTable() {
 
     setPayments((prev) => ({
       ...(prev || {}),
-      [sid]: { ...(prev?.[sid] || { paid: false, free: false }), amount: Number(amount || 0) },
+      [sid]: {
+        ...(prev?.[sid] || {
+          paid: false,
+          free: false,
+          feeRemaining: false,
+          paidAt: "",
+        }),
+        amount: Number(amount || 0),
+      },
     }));
   }
 
@@ -433,10 +504,22 @@ export default function AttendanceMarkTable() {
 
       for (const st of students) {
         const sid = getStudentId(st);
-        const cur = next[sid] || { paid: false, amount: 0, free: false };
+        const cur = next[sid] || {
+          paid: false,
+          amount: 0,
+          free: false,
+          feeRemaining: false,
+          paidAt: "",
+        };
 
         if (cur.free) {
-          next[sid] = { ...cur, paid: false, amount: 0 };
+          next[sid] = {
+            ...cur,
+            paid: false,
+            amount: 0,
+            feeRemaining: false,
+            paidAt: "",
+          };
           continue;
         }
 
@@ -447,17 +530,18 @@ export default function AttendanceMarkTable() {
           nextAmount = classFee;
         }
 
-        next[sid] = { ...cur, paid: value, amount: nextAmount };
+        next[sid] = {
+          ...cur,
+          paid: value,
+          amount: nextAmount,
+          paidAt: value ? cur.paidAt || todayISO() : "",
+        };
       }
 
       return next;
     });
   }
 
-  // ----------------------------
-  // Save bulk: attendance + payments
-  // - Only pass isFree to PAYMENT bulk API (NOT attendance API)
-  // ----------------------------
   async function saveAll() {
     if (!classId || !yearMonth) return;
 
@@ -487,12 +571,10 @@ export default function AttendanceMarkTable() {
             isExtraClass: false,
             extraClassId: null,
             remarks: null,
-            // ❌ no isFree here
           });
         }
       }
 
-      // ✅ include isFree ONLY in payment bulk payload
       const paymentRecords = students.map((st) => {
         const sid = getStudentId(st);
         const isFree = !!payments?.[sid]?.free;
@@ -501,12 +583,13 @@ export default function AttendanceMarkTable() {
           studentId: Number(sid),
           paid: isFree ? false : !!payments?.[sid]?.paid,
           amount: isFree ? 0 : Number(payments?.[sid]?.amount ?? 0),
-          isFree, // ✅ ONLY HERE
+          isFree,
+          feeRemaining: isFree ? false : !!payments?.[sid]?.feeRemaining,
+          paidAt: isFree ? null : payments?.[sid]?.paidAt || null,
         };
       });
 
       await Promise.all([
-        // attendance bulk unchanged
         apiFetch("/student-attendances/bulk", {
           method: "POST",
           body: JSON.stringify({
@@ -515,7 +598,6 @@ export default function AttendanceMarkTable() {
             records: attendanceRecords,
           }),
         }),
-        // payment bulk receives isFree
         apiFetch("/student-payments/bulk", {
           method: "POST",
           body: JSON.stringify({
@@ -619,7 +701,6 @@ export default function AttendanceMarkTable() {
           </button>
         </div>
 
-        {/* Summary */}
         <div
           style={{
             marginTop: 12,
@@ -675,13 +756,15 @@ export default function AttendanceMarkTable() {
           </div>
         ) : (
           <div className="tableWrap" style={{ marginTop: 12, overflowX: "auto" }}>
-            <table className="table" style={{ minWidth: 1200 }}>
+            <table className="table" style={{ minWidth: 1500 }}>
               <thead>
                 <tr>
                   <th style={{ ...stickyThTd, minWidth: 260 }}>Student (Name / Mobile)</th>
                   <th style={{ minWidth: 80, textAlign: "center" }}>Free</th>
                   <th style={{ minWidth: 90, textAlign: "center" }}>Paid</th>
                   <th style={{ minWidth: 120, textAlign: "center" }}>Amount</th>
+                  <th style={{ minWidth: 130, textAlign: "center" }}>Fee Remaining</th>
+                  <th style={{ minWidth: 140, textAlign: "center" }}>Paid At</th>
 
                   {sessions.map((ses) => (
                     <th key={ses.id} style={{ minWidth: 110, textAlign: "center" }}>
@@ -710,10 +793,19 @@ export default function AttendanceMarkTable() {
                   const name = getStudentName(st, sid);
                   const mobileLine = getStudentMobileLine(st, sid);
 
-                  const row = payments?.[sid] || { paid: false, amount: 0, free: false };
+                  const row = payments?.[sid] || {
+                    paid: false,
+                    amount: 0,
+                    free: false,
+                    feeRemaining: false,
+                    paidAt: "",
+                  };
+
                   const isFree = !!row.free;
                   const paid = !!row.paid;
                   const amount = row.amount ?? 0;
+                  const feeRemaining = !!row.feeRemaining;
+                  const paidAt = row.paidAt || "";
 
                   return (
                     <tr key={sid}>
@@ -760,6 +852,36 @@ export default function AttendanceMarkTable() {
                           disabled={isFree}
                           onChange={(e) => setAmount(sid, e.target.value)}
                           placeholder={classFee ? String(classFee) : "0"}
+                        />
+                      </td>
+
+                      <td style={{ textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={feeRemaining}
+                          onChange={(e) => setFeeRemaining(sid, e.target.checked)}
+                          disabled={isFree}
+                          style={{
+                            width: 18,
+                            height: 18,
+                            cursor: isFree ? "not-allowed" : "pointer",
+                          }}
+                          title={isFree ? "Free student has no remaining fee" : "Fee Remaining"}
+                        />
+                      </td>
+
+                      <td style={{ textAlign: "center" }}>
+                        <input
+                          type="date"
+                          className="input"
+                          style={{
+                            width: 140,
+                            opacity: !paid || isFree ? 0.6 : 1,
+                            cursor: !paid || isFree ? "not-allowed" : "pointer",
+                          }}
+                          value={paid && !isFree ? paidAt : ""}
+                          disabled={!paid || isFree}
+                          onChange={(e) => setPaidAt(sid, e.target.value)}
                         />
                       </td>
 
