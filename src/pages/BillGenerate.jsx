@@ -593,25 +593,6 @@ export default function BillGenerate() {
             </select>
           </div>
 
-          <div>
-            <label className="label">Subject (Optional)</label>
-            <select
-              className="input"
-              value={subjectId}
-              onChange={(e) => setSubjectId(e.target.value)}
-            >
-              <option value="">All Subjects</option>
-              {subjects.map((s) => (
-                <option key={s.id} value={String(s.id)}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            <div className="muted">
-              Example: Select Maths → shows Maths classes only.
-            </div>
-          </div>
-
           <Button
             type="button"
             onClick={loadSummary}
