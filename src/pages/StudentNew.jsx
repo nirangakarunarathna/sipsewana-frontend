@@ -4,17 +4,16 @@ import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://192.168.8.135:3000";
 
 export default function StudentNew() {
-  // form fields (match your API)
   const [fullName, setFullName] = useState("");
   const [studentMobile, setStudentMobile] = useState("");
+  const [studentWhatsApp, setStudentWhatsApp] = useState("");
   const [parentMobile, setParentMobile] = useState("");
   const [parentName, setParentName] = useState("");
   const [address, setAddress] = useState("");
 
-  // list + UI search
   const [search, setSearch] = useState("");
   const [students, setStudents] = useState([]);
 
@@ -31,10 +30,7 @@ export default function StudentNew() {
     setLoadingList(true);
     setErrorMsg("");
     try {
-      // Load ALL students once, then filter in UI
       const data = await apiFetch(`/students`, { method: "GET" });
-
-      // supports either array or {data: []}
       const list = Array.isArray(data) ? data : data?.data ?? [];
       setStudents(list);
     } catch (e) {
@@ -48,7 +44,6 @@ export default function StudentNew() {
     loadStudents();
   }, []);
 
-  // ✅ UI Filtering by name OR number
   const filteredStudents = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return students;
@@ -56,10 +51,12 @@ export default function StudentNew() {
     return students.filter((s) => {
       const name = (s.fullName || s.name || "").toLowerCase();
       const mobile = (s.studentMobile || s.phone || "").toLowerCase();
+      const whatsapp = (s.studentWhatsApp || "").toLowerCase();
 
       return (
         name.includes(q) ||
-        mobile.includes(q)
+        mobile.includes(q) ||
+        whatsapp.includes(q)
       );
     });
   }, [students, search]);
@@ -74,6 +71,7 @@ export default function StudentNew() {
       const payload = {
         fullName: fullName.trim(),
         studentMobile: studentMobile.trim(),
+        studentWhatsApp: studentWhatsApp.trim() || null,
         parentMobile: parentMobile.trim() || null,
         parentName: parentName.trim() || null,
         address: address.trim() || null,
@@ -87,6 +85,7 @@ export default function StudentNew() {
       setSuccessMsg("Student registered successfully.");
       setFullName("");
       setStudentMobile("");
+      setStudentWhatsApp("");
       setParentMobile("");
       setParentName("");
       setAddress("");
@@ -147,6 +146,9 @@ export default function StudentNew() {
           <label className="label">Student Mobile</label>
           <Input value={studentMobile} onChange={(e) => setStudentMobile(e.target.value)} placeholder="07xxxxxxxx" />
 
+          <label className="label">Student WhatsApp</label>
+          <Input value={studentWhatsApp} onChange={(e) => setStudentWhatsApp(e.target.value)} placeholder="07xxxxxxxx" />
+
           <label className="label">Parent Name</label>
           <Input value={parentName} onChange={(e) => setParentName(e.target.value)} placeholder="" />
 
@@ -168,7 +170,7 @@ export default function StudentNew() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name / student mobile "
+              placeholder="Search by name / mobile / WhatsApp"
             />
             <Button type="button" onClick={loadStudents} disabled={loadingList}>
               {loadingList ? "Loading..." : "Refresh"}
@@ -181,6 +183,7 @@ export default function StudentNew() {
                 <tr>
                   <th>Full Name</th>
                   <th>Student Mobile</th>
+                  <th>Student WhatsApp</th>
                   <th>Parent</th>
                   <th>Address</th>
                   <th>Status</th>
@@ -190,7 +193,7 @@ export default function StudentNew() {
               <tbody>
                 {filteredStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="muted">
+                    <td colSpan={7} className="muted">
                       {loadingList ? "Loading..." : "No students found."}
                     </td>
                   </tr>
@@ -198,6 +201,7 @@ export default function StudentNew() {
                   filteredStudents.map((s) => {
                     const name = s.fullName ?? s.name ?? "-";
                     const stuMob = s.studentMobile ?? s.phone ?? "-";
+                    const stuWhatsApp = s.studentWhatsApp ?? "-";
                     const pName = s.parentName ?? "-";
                     const pMob = s.parentMobile ?? "-";
                     const addr = s.address ?? "-";
@@ -207,6 +211,7 @@ export default function StudentNew() {
                       <tr key={s.id}>
                         <td>{name}</td>
                         <td>{stuMob}</td>
+                        <td>{stuWhatsApp}</td>
                         <td>
                           <div style={{ display: "grid" }}>
                             <span>{pName}</span>
