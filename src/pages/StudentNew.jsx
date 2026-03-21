@@ -4,7 +4,7 @@ import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://10.201.39.38:3000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://192.168.8.106:3000";
 
 export default function StudentNew() {
   const [fullName, setFullName] = useState("");
