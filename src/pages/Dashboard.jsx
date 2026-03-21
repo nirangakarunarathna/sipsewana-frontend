@@ -6,32 +6,6 @@ import Button from "../ui/Button.jsx";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://192.168.8.135:3000";
 
-// async function apiFetch(path, options = {}) {
-//   const res = await fetch(`${API_BASE}${path}`, {
-//     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-//     ...options,
-//   });
-
-//   const text = await res.text();
-//   const data = text
-//     ? (() => {
-//         try {
-//           return JSON.parse(text);
-//         } catch {
-//           return text;
-//         }
-//       })()
-//     : null;
-
-//   if (!res.ok) {
-//     const msg =
-//       (data && typeof data === "object" && (data.message || data.error)) ||
-//       (typeof data === "string" ? data : "Request failed");
-//     throw new Error(msg);
-//   }
-//   return data;
-// }
-
 function ymNow() {
   return new Date().toISOString().slice(0, 7);
 }
@@ -53,6 +27,7 @@ function pct(paid, total) {
 // simple inline icons (no libraries)
 function Icon({ name }) {
   const style = { width: 18, height: 18, display: "inline-block" };
+
   if (name === "users")
     return (
       <svg style={style} viewBox="0 0 24 24" fill="none">
@@ -136,8 +111,16 @@ function StatCard({ title, value, sub, icon, tone = "default" }) {
         minHeight: 92,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-        <div className="muted" style={{ fontSize: 12, color: tone === "dark" ? "rgba(255,255,255,0.8)" : "" }}>
+      <div
+        style={{ display: "flex", justifyContent: "space-between", gap: 10 }}
+      >
+        <div
+          className="muted"
+          style={{
+            fontSize: 12,
+            color: tone === "dark" ? "rgba(255,255,255,0.8)" : "",
+          }}
+        >
           {title}
         </div>
         <div style={{ opacity: tone === "dark" ? 0.9 : 0.55 }}>
@@ -171,7 +154,6 @@ export default function Dashboard() {
   const [teachers, setTeachers] = useState([]);
   const [classes, setClasses] = useState([]);
 
-  // from /student-payments/summary (your backend returns {rows, totals})
   const [summary, setSummary] = useState({
     scope: "month",
     period: ymNow(),
@@ -239,7 +221,6 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    // reload only summary when month changes (fast)
     (async () => {
       try {
         setLoading(true);
@@ -272,14 +253,12 @@ export default function Dashboard() {
   }, [yearMonth]);
 
   const paidPct = useMemo(() => {
-    // if backend provides it, trust it; else compute
     const backendPct = safeNum(summary?.totals?.paidPct);
     if (backendPct) return backendPct;
     return pct(summary.totals.paidCount, summary.totals.totalStudents);
   }, [summary]);
 
   const monthTitle = useMemo(() => {
-    // "2026-03" -> "March 2026"
     const [y, m] = String(yearMonth).split("-");
     const dt = new Date(Number(y), Number(m) - 1, 1);
     return dt.toLocaleString(undefined, { month: "long", year: "numeric" });
@@ -320,7 +299,7 @@ export default function Dashboard() {
           style={{
             marginTop: 14,
             display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
             gap: 12,
           }}
         >
@@ -341,6 +320,12 @@ export default function Dashboard() {
             value={classes.length}
             sub="Active + inactive"
             icon="class"
+          />
+          <StatCard
+            title="Total Class Students"
+            value={summary.totals.totalStudents}
+            sub={`Students in summary for ${monthTitle}`}
+            icon="users"
           />
 
           <StatCard
