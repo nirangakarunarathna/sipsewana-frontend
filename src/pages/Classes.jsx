@@ -3,14 +3,14 @@ import { apiFetch } from "../utils/apiFetch";
 import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function Classes() {
-  // dropdown data
   const [grades, setGrades] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
 
-  // form
   const [gradeId, setGradeId] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [teacherId, setTeacherId] = useState("");
@@ -18,13 +18,13 @@ export default function Classes() {
   const [fee, setFee] = useState("");
   const [institutePercentage, setInstitutePercentage] = useState("25");
 
-  // list
   const [classes, setClasses] = useState([]);
   const [search, setSearch] = useState("");
 
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [printingId, setPrintingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
@@ -57,7 +57,6 @@ export default function Classes() {
       setSubjects(sList);
       setTeachers(tList);
 
-      // set defaults
       setGradeId((prev) => prev || (gList[0]?.id ? String(gList[0].id) : ""));
       setSubjectId((prev) => prev || (sList[0]?.id ? String(sList[0].id) : ""));
       setTeacherId((prev) => prev || (tList[0]?.id ? String(tList[0].id) : ""));
@@ -97,12 +96,20 @@ export default function Classes() {
       const g = (c.grade?.name || c.gradeName || "").toLowerCase();
       const s = (c.subject?.name || c.subjectName || "").toLowerCase();
       const t = (c.teacher?.fullName || c.teacherName || "").toLowerCase();
-
       const p = String(
-        c.institutePercentage ?? c.institute_percentage ?? c.institute_percent ?? ""
+        c.institutePercentage ??
+          c.institute_percentage ??
+          c.institute_percent ??
+          ""
       ).toLowerCase();
 
-      return n.includes(q) || g.includes(q) || s.includes(q) || t.includes(q) || p.includes(q);
+      return (
+        n.includes(q) ||
+        g.includes(q) ||
+        s.includes(q) ||
+        t.includes(q) ||
+        p.includes(q)
+      );
     });
   }, [classes, search]);
 
@@ -182,6 +189,164 @@ export default function Classes() {
     }
   }
 
+  function formatDate(value) {
+    if (!value) return "-";
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return String(value);
+    return dt.toLocaleDateString();
+  }
+
+  async function printStudents(row) {
+  setPrintingId(row.id);
+  setErrorMsg("");
+  setSuccessMsg("");
+
+  try {
+    const res = await apiFetch(
+      `/student-classes?classId=${encodeURIComponent(row.id)}`,
+      { method: "GET" }
+    );
+    const list = Array.isArray(res) ? res : res?.data ?? [];
+
+    const gradeName = row.grade?.name ?? row.gradeName ?? "-";
+    const subjectName = row.subject?.name ?? row.subjectName ?? "-";
+    const teacherName =
+      row.teacher?.fullName ?? row.teacherName ?? row.teacher?.name ?? "-";
+    const classFee = row.fee ?? "-";
+
+    const monthLabel = "_ _ _ _ _ _ _ _ _ _ _ _";
+
+    const doc = new jsPDF("l", "pt", "a4");
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const sideMargin = 12;
+
+    let y = 60;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text(`${row.name ?? "-"}`, pageWidth / 2, y, {
+      align: "center",
+    });
+
+    y += 28;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+
+    const col1 = sideMargin;
+    const col2 = pageWidth * 0.20;
+    const col3 = pageWidth * 0.38;
+    const col4 = pageWidth * 0.58;
+    const col5 = pageWidth * 0.74;
+
+    doc.text(`Grade: ${gradeName}`, col1, y);
+    doc.text(`Subject: ${subjectName}`, col2, y);
+    doc.text(`Teacher: ${teacherName}`, col3, y);
+    doc.text(`Class Fee: ${classFee}`, col4, y);
+    doc.text(`Year & Month: ${monthLabel}`, col5, y);
+
+    y += 18;
+
+    autoTable(doc, {
+      startY: y + 8,
+      margin: { left: sideMargin, right: sideMargin, bottom: 0 },
+      theme: "grid",
+      pageBreak: "auto",
+      rowPageBreak: "avoid",
+      styles: {
+        fontSize: 7.5,
+        cellPadding: 4,
+        valign: "middle",
+        halign: "center",
+        lineColor: [170, 170, 170],
+        lineWidth: 0.5,
+      },
+      headStyles: {
+        fillColor: [45, 188, 160],
+        textColor: 255,
+        fontStyle: "bold",
+        fontSize: 8,
+        minCellHeight: 40,
+      },
+      bodyStyles: {
+        minCellHeight: 24,
+      },
+      head: [[
+        "No",
+        "Student ID",
+        "Student Name",
+        "Mobile",
+        "1\nDate / Time",
+        "2\nDate / Time",
+        "3\nDate / Time",
+        "4\nDate / Time",
+        "5\nDate / Time",
+        "6\nDate / Time",
+        "7\nDate / Time",
+        "Paid\nAmount",
+        "Paid\nDate",
+        "Prev.\nMonth",
+      ]],
+      body: [
+        ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ...(list.length
+          ? list.map((item, index) => [
+              index + 1,
+              item.student?.id ?? "-",
+              item.student?.fullName ?? "-",
+              item.student?.studentMobile ??
+                item.student?.mobile ??
+                item.student?.studentWhatsApp ??
+                item.student?.parentMobile ??
+                "-",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+            ])
+          : [["", "", "No students found", "", "", "", "", "", "", "", "", "", "", ""]]),
+      ],
+      columnStyles: {
+        0: { cellWidth: 22 },
+        1: { cellWidth: 42 },
+        2: { cellWidth: 140, halign: "left" },
+        3: { cellWidth: 65 },
+        4: { cellWidth: 58 },
+        5: { cellWidth: 58 },
+        6: { cellWidth: 58 },
+        7: { cellWidth: 58 },
+        8: { cellWidth: 58 },
+        9: { cellWidth: 58 },
+        10: { cellWidth: 58 },
+        11: { cellWidth: 48 },
+        12: { cellWidth: 48 },
+        13: { cellWidth: 42 },
+      },
+      didParseCell(data) {
+        if (data.section === "body" && data.row.index === 0) {
+          data.cell.styles.minCellHeight = 40;
+        }
+      },
+    });
+
+    const blob = doc.output("blob");
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+
+    setSuccessMsg(`Student sheet generated.`);
+  } catch (e) {
+    setErrorMsg(e.message || "Failed to generate PDF");
+  } finally {
+    setPrintingId(null);
+  }
+}
+
   return (
     <div className="grid gap-4">
       <Card title="Register Class">
@@ -235,10 +400,19 @@ export default function Classes() {
           {!teachers.length ? <div className="muted">Add teachers first.</div> : null}
 
           <label className="label">Class Name</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Grade 2 / English" />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Grade 2 / English"
+          />
 
           <label className="label">Fee</label>
-          <Input value={fee} onChange={(e) => setFee(e.target.value)} placeholder="1200" inputMode="numeric" />
+          <Input
+            value={fee}
+            onChange={(e) => setFee(e.target.value)}
+            placeholder="1200"
+            inputMode="numeric"
+          />
 
           <label className="label">Institute Percentage (%)</label>
           <Input
@@ -257,7 +431,10 @@ export default function Classes() {
 
       <Card title="Classes List">
         <div className="grid gap-3">
-          <div className="grid" style={{ gridTemplateColumns: "1fr auto auto", gap: 12 }}>
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: "1fr auto auto", gap: 12 }}
+          >
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -282,7 +459,7 @@ export default function Classes() {
                   <th>Fee</th>
                   <th>Institute %</th>
                   <th>Status</th>
-                  <th style={{ width: 260 }}>Actions</th>
+                  <th style={{ width: 360 }}>Actions</th>
                 </tr>
               </thead>
 
@@ -297,12 +474,20 @@ export default function Classes() {
                   filteredClasses.map((c) => {
                     const isActive = !!(c.isActive ?? c.active ?? true);
 
-                    const gradeName = c.grade?.name ?? c.gradeName ?? c.grade?.title ?? "-";
+                    const gradeName =
+                      c.grade?.name ?? c.gradeName ?? c.grade?.title ?? "-";
                     const subjectName = c.subject?.name ?? c.subjectName ?? "-";
-                    const teacherName = c.teacher?.fullName ?? c.teacherName ?? c.teacher?.name ?? "-";
+                    const teacherName =
+                      c.teacher?.fullName ??
+                      c.teacherName ??
+                      c.teacher?.name ??
+                      "-";
 
                     const instPerc =
-                      c.institutePercentage ?? c.institute_percentage ?? c.institute_percent ?? 25;
+                      c.institutePercentage ??
+                      c.institute_percentage ??
+                      c.institute_percent ??
+                      25;
 
                     return (
                       <tr key={c.id}>
@@ -313,12 +498,17 @@ export default function Classes() {
                         <td>{c.fee ?? "-"}</td>
                         <td>{Number(instPerc)}%</td>
                         <td>
-                          <span className={isActive ? "badge badgeOk" : "badge badgeOff"}>
+                          <span
+                            className={isActive ? "badge badgeOk" : "badge badgeOff"}
+                          >
                             {isActive ? "Active" : "Inactive"}
                           </span>
                         </td>
                         <td>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <Button type="button" onClick={() => printStudents(c)}>
+                              {printingId === c.id ? "Generating..." : "Print Students"}
+                            </Button>
                             <Button type="button" onClick={() => toggleActive(c)}>
                               {isActive ? "Deactivate" : "Activate"}
                             </Button>
@@ -336,7 +526,8 @@ export default function Classes() {
           </div>
 
           <div className="muted">
-            Dropdowns load from Grades / Subjects / Teachers. Register sends IDs + institutePercentage.
+            Print Students loads students from <code>/student-classes?classId=CLASS_ID</code>
+            and generates a PDF with Student ID, Name, Mobile, and 4 attendance columns.
           </div>
         </div>
       </Card>
