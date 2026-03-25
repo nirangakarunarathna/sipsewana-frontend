@@ -212,23 +212,29 @@ export default function Classes() {
     const subjectName = row.subject?.name ?? row.subjectName ?? "-";
     const teacherName =
       row.teacher?.fullName ?? row.teacherName ?? row.teacher?.name ?? "-";
-    const classFee = row.fee ?? "-";
+    const classFee = row.fee ? Number(row.fee).toLocaleString() : "-";
 
     const monthLabel = "_ _ _ _ _ _ _ _ _ _ _ _";
 
     const doc = new jsPDF("l", "pt", "a4");
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
     const sideMargin = 12;
 
-    let y = 60;
+    // ✅ ONLY FIRST PAGE TOP SPACE (for punching)
+    const firstPageTop = 34;
+    let y = firstPageTop;
 
+    // ===== TITLE =====
     doc.setFont("helvetica", "bold");
     doc.setFontSize(20);
-    doc.text(`${row.name ?? "-"}`, pageWidth / 2, y, {
+    doc.text(`${row.name ?? "-"}`, pageWidth / 2, y + 18, {
       align: "center",
     });
 
-    y += 28;
+    // ===== HEADER LINE =====
+    y += 52;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
@@ -236,8 +242,8 @@ export default function Classes() {
     const col1 = sideMargin;
     const col2 = pageWidth * 0.20;
     const col3 = pageWidth * 0.38;
-    const col4 = pageWidth * 0.58;
-    const col5 = pageWidth * 0.74;
+    const col4 = pageWidth * 0.56;
+    const col5 = pageWidth * 0.72;
 
     doc.text(`Grade: ${gradeName}`, col1, y);
     doc.text(`Subject: ${subjectName}`, col2, y);
@@ -245,21 +251,81 @@ export default function Classes() {
     doc.text(`Class Fee: ${classFee}`, col4, y);
     doc.text(`Year & Month: ${monthLabel}`, col5, y);
 
-    y += 18;
+    const startY = y + 18;
 
+    // ===== DATA =====
+    const firstWriteRow = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
+
+    const studentRows = list.length
+      ? list.map((item, index) => [
+          index + 1,
+          item.student?.id ?? "-",
+          item.student?.fullName ?? "-",
+          item.student?.studentMobile ??
+            item.student?.mobile ??
+            item.student?.studentWhatsApp ??
+            item.student?.parentMobile ??
+            "-",
+          "", "", "", "", "", "", "",
+          "", "", "", "",
+        ])
+      : [["", "", "No students found", "", "", "", "", "", "", "", "", "", "", "", ""]];
+
+    let body = [firstWriteRow, ...studentRows];
+
+    // ===== AUTO FILL LAST PAGE =====
+    const headerHeight = 40;
+    const firstRowHeight = 40;
+    const normalRowHeight = 24;
+    const bottomMargin = 8;
+
+    const firstPageAvailable = pageHeight - startY - bottomMargin;
+
+    const firstPageRows =
+      1 +
+      Math.floor(
+        (firstPageAvailable - headerHeight - firstRowHeight) / normalRowHeight
+      );
+
+    const otherPageRows = Math.floor(
+      (pageHeight - startY - headerHeight - bottomMargin) / normalRowHeight
+    );
+
+    if (body.length <= firstPageRows) {
+      while (body.length < firstPageRows) {
+        body.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+      }
+    } else {
+      const remaining = body.length - firstPageRows;
+      const remainder = remaining % otherPageRows;
+
+      if (remainder !== 0) {
+        const needed = otherPageRows - remainder;
+        for (let i = 0; i < needed; i++) {
+          body.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+        }
+      }
+    }
+
+    // ===== TABLE =====
     autoTable(doc, {
-      startY: y + 8,
-      margin: { left: sideMargin, right: sideMargin, bottom: 0 },
+      startY,
+      margin: {
+        left: sideMargin,
+        right: sideMargin,
+        bottom: 0,
+      },
       theme: "grid",
       pageBreak: "auto",
       rowPageBreak: "avoid",
       styles: {
-        fontSize: 7.5,
+        fontSize: 7.2,
         cellPadding: 4,
         valign: "middle",
         halign: "center",
         lineColor: [170, 170, 170],
         lineWidth: 0.5,
+        fontStyle: "bold", // ✅ BOLD TEXT
       },
       headStyles: {
         fillColor: [45, 188, 160],
@@ -270,6 +336,7 @@ export default function Classes() {
       },
       bodyStyles: {
         minCellHeight: 24,
+        fontStyle: "bold",
       },
       head: [[
         "No",
@@ -286,51 +353,30 @@ export default function Classes() {
         "Paid\nAmount",
         "Paid\nDate",
         "Prev.\nMonth",
+        "Clear\nDate",
       ]],
-      body: [
-        ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        ...(list.length
-          ? list.map((item, index) => [
-              index + 1,
-              item.student?.id ?? "-",
-              item.student?.fullName ?? "-",
-              item.student?.studentMobile ??
-                item.student?.mobile ??
-                item.student?.studentWhatsApp ??
-                item.student?.parentMobile ??
-                "-",
-              "",
-              "",
-              "",
-              "",
-              "",
-              "",
-              "",
-              "",
-              "",
-              "",
-            ])
-          : [["", "", "No students found", "", "", "", "", "", "", "", "", "", "", ""]]),
-      ],
+      body,
       columnStyles: {
-        0: { cellWidth: 22 },
-        1: { cellWidth: 42 },
-        2: { cellWidth: 140, halign: "left" },
-        3: { cellWidth: 65 },
-        4: { cellWidth: 58 },
-        5: { cellWidth: 58 },
-        6: { cellWidth: 58 },
-        7: { cellWidth: 58 },
-        8: { cellWidth: 58 },
-        9: { cellWidth: 58 },
-        10: { cellWidth: 58 },
-        11: { cellWidth: 48 },
-        12: { cellWidth: 48 },
-        13: { cellWidth: 42 },
+        0: { cellWidth: 20 },
+        1: { cellWidth: 38 },
+        2: { cellWidth: 132, halign: "left" },
+        3: { cellWidth: 60 },
+        4: { cellWidth: 52 },
+        5: { cellWidth: 52 },
+        6: { cellWidth: 52 },
+        7: { cellWidth: 52 },
+        8: { cellWidth: 52 },
+        9: { cellWidth: 52 },
+        10: { cellWidth: 52 },
+        11: { cellWidth: 44 },
+        12: { cellWidth: 44 },
+        13: { cellWidth: 40 },
+        14: { cellWidth: 46 },
       },
       didParseCell(data) {
+        // first blank row bigger
         if (data.section === "body" && data.row.index === 0) {
-          data.cell.styles.minCellHeight = 40;
+          data.cell.styles.minCellHeight = 36;
         }
       },
     });
