@@ -49,9 +49,9 @@ export default function Classes() {
         apiFetch("/teachers", { method: "GET" }),
       ]);
 
-      const gList = Array.isArray(g) ? g : g?.data ?? [];
-      const sList = Array.isArray(s) ? s : s?.data ?? [];
-      const tList = Array.isArray(t) ? t : t?.data ?? [];
+      const gList = Array.isArray(g) ? g : (g?.data ?? []);
+      const sList = Array.isArray(s) ? s : (s?.data ?? []);
+      const tList = Array.isArray(t) ? t : (t?.data ?? []);
 
       setGrades(gList);
       setSubjects(sList);
@@ -72,7 +72,7 @@ export default function Classes() {
     setErrorMsg("");
     try {
       const data = await apiFetch("/classes", { method: "GET" });
-      const list = Array.isArray(data) ? data : data?.data ?? [];
+      const list = Array.isArray(data) ? data : (data?.data ?? []);
       setClasses(list);
     } catch (e) {
       setErrorMsg(e.message || "Failed to load classes");
@@ -100,7 +100,7 @@ export default function Classes() {
         c.institutePercentage ??
           c.institute_percentage ??
           c.institute_percent ??
-          ""
+          "",
       ).toLowerCase();
 
       return (
@@ -213,48 +213,15 @@ export default function Classes() {
     const teacherName =
       row.teacher?.fullName ?? row.teacherName ?? row.teacher?.name ?? "-";
     const classFee = row.fee ? Number(row.fee).toLocaleString() : "-";
-
     const monthLabel = "_ _ _ _ _ _ _ _ _ _ _ _";
 
-    const doc = new jsPDF("l", "pt", "a4");
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-
     const sideMargin = 12;
-
-    // ✅ ONLY FIRST PAGE TOP SPACE (for punching)
     const firstPageTop = 34;
-    let y = firstPageTop;
+    const pageBottomMargin = 8;
 
-    // ===== TITLE =====
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
-    doc.text(`${row.name ?? "-"}`, pageWidth / 2, y + 18, {
-      align: "center",
-    });
-
-    // ===== HEADER LINE =====
-    y += 52;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-
-    const col1 = sideMargin;
-    const col2 = pageWidth * 0.20;
-    const col3 = pageWidth * 0.38;
-    const col4 = pageWidth * 0.56;
-    const col5 = pageWidth * 0.72;
-
-    doc.text(`Grade: ${gradeName}`, col1, y);
-    doc.text(`Subject: ${subjectName}`, col2, y);
-    doc.text(`Teacher: ${teacherName}`, col3, y);
-    doc.text(`Class Fee: ${classFee}`, col4, y);
-    doc.text(`Year & Month: ${monthLabel}`, col5, y);
-
-    const startY = y + 18;
-
-    // ===== DATA =====
-    const firstWriteRow = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
+    const firstWriteRow = [
+      "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+    ];
 
     const studentRows = list.length
       ? list.map((item, index) => [
@@ -269,119 +236,161 @@ export default function Classes() {
           "", "", "", "", "", "", "",
           "", "", "", "",
         ])
-      : [["", "", "No students found", "", "", "", "", "", "", "", "", "", "", "", ""]];
+      : [[
+          "", "", "No students found", "", "", "", "", "", "", "", "", "", "", "", "",
+        ]];
 
-    let body = [firstWriteRow, ...studentRows];
+    function buildDoc(bodyRows) {
+      const doc = new jsPDF("l", "pt", "a4");
+      const pageWidth = doc.internal.pageSize.getWidth();
 
-    // ===== AUTO FILL LAST PAGE =====
-    const headerHeight = 40;
-    const firstRowHeight = 40;
-    const normalRowHeight = 24;
-    const bottomMargin = 8;
+      let y = firstPageTop;
 
-    const firstPageAvailable = pageHeight - startY - bottomMargin;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(20);
+      doc.text(`${row.name ?? "-"}`, pageWidth / 2, y + 18, {
+        align: "center",
+      });
 
-    const firstPageRows =
-      1 +
-      Math.floor(
-        (firstPageAvailable - headerHeight - firstRowHeight) / normalRowHeight
-      );
+      y += 44;
 
-    const otherPageRows = Math.floor(
-      (pageHeight - startY - headerHeight - bottomMargin) / normalRowHeight
-    );
+      const boxX = sideMargin;
+      const boxY = y - 18;
+      const boxW = pageWidth - sideMargin * 2;
+      const boxH = 34;
 
-    if (body.length <= firstPageRows) {
-      while (body.length < firstPageRows) {
-        body.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-      }
-    } else {
-      const remaining = body.length - firstPageRows;
-      const remainder = remaining % otherPageRows;
+      doc.setDrawColor(130, 130, 130);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(boxX, boxY, boxW, boxH, 6, 6);
 
-      if (remainder !== 0) {
-        const needed = otherPageRows - remainder;
-        for (let i = 0; i < needed; i++) {
-          body.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-        }
-      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+
+      const textY = boxY + 22;
+      const c1 = boxX + 10;
+      const c2 = boxX + boxW * 0.18;
+      const c3 = boxX + boxW * 0.34;
+      const c4 = boxX + boxW * 0.66;
+      const c5 = boxX + boxW * 0.80;
+
+      doc.text(`Grade: ${gradeName}`, c1, textY);
+      doc.text(`Subject: ${subjectName}`, c2, textY);
+      doc.text(`Teacher: ${teacherName}`, c3, textY);
+      doc.text(`Fee: ${classFee}`, c4, textY);
+      doc.text(`Month: ${monthLabel}`, c5, textY);
+
+      const startY = boxY + boxH + 12;
+
+      autoTable(doc, {
+        startY,
+        margin: {
+          left: sideMargin,
+          right: sideMargin,
+          bottom: 0,
+        },
+        theme: "grid",
+        pageBreak: "auto",
+        rowPageBreak: "avoid",
+        styles: {
+          fontSize: 8.5,
+          cellPadding: 4,
+          valign: "middle",
+          halign: "center",
+          lineColor: [120, 120, 120],
+          lineWidth: 0.6,
+          fontStyle: "bold",
+          textColor: [0, 0, 0],
+        },
+        headStyles: {
+          fillColor: [230, 230, 230],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 9,
+          minCellHeight: 40,
+          lineColor: [100, 100, 100],
+          lineWidth: 0.7,
+        },
+        bodyStyles: {
+          minCellHeight: 26,
+          fontStyle: "bold",
+          textColor: [0, 0, 0],
+        },
+        head: [[
+          "No",
+          "Student ID",
+          "Student Name",
+          "Mobile",
+          "1\nDate / Time",
+          "2\nDate / Time",
+          "3\nDate / Time",
+          "4\nDate / Time",
+          "5\nDate / Time",
+          "6\nDate / Time",
+          "7\nDate / Time",
+          "Paid\nAmount",
+          "Paid\nDate",
+          "Prev.\nMonth",
+          "Clear\nDate",
+        ]],
+        body: bodyRows,
+        columnStyles: {
+          0: { cellWidth: 20 },
+          1: { cellWidth: 42 },
+          2: { cellWidth: 132, halign: "left" },
+          3: { cellWidth: 60 },
+          4: { cellWidth: 52 },
+          5: { cellWidth: 52 },
+          6: { cellWidth: 52 },
+          7: { cellWidth: 52 },
+          8: { cellWidth: 52 },
+          9: { cellWidth: 52 },
+          10: { cellWidth: 52 },
+          11: { cellWidth: 44 },
+          12: { cellWidth: 44 },
+          13: { cellWidth: 40 },
+          14: { cellWidth: 46 },
+        },
+        didParseCell(data) {
+          if (data.section === "body" && data.row.index === 0) {
+            data.cell.styles.minCellHeight = 38;
+          }
+
+          if (data.section === "body" && data.column.index === 2) {
+            data.cell.styles.fontSize = 9;
+            data.cell.styles.halign = "left";
+          }
+
+          if (data.section === "body" && data.column.index !== 2) {
+            data.cell.styles.fontSize = 8.5;
+          }
+        },
+      });
+
+      return doc;
     }
 
-    // ===== TABLE =====
-    autoTable(doc, {
-      startY,
-      margin: {
-        left: sideMargin,
-        right: sideMargin,
-        bottom: 0,
-      },
-      theme: "grid",
-      pageBreak: "auto",
-      rowPageBreak: "avoid",
-      styles: {
-        fontSize: 7.2,
-        cellPadding: 4,
-        valign: "middle",
-        halign: "center",
-        lineColor: [170, 170, 170],
-        lineWidth: 0.5,
-        fontStyle: "bold", // ✅ BOLD TEXT
-      },
-      headStyles: {
-        fillColor: [45, 188, 160],
-        textColor: 255,
-        fontStyle: "bold",
-        fontSize: 8,
-        minCellHeight: 40,
-      },
-      bodyStyles: {
-        minCellHeight: 24,
-        fontStyle: "bold",
-      },
-      head: [[
-        "No",
-        "Student ID",
-        "Student Name",
-        "Mobile",
-        "1\nDate / Time",
-        "2\nDate / Time",
-        "3\nDate / Time",
-        "4\nDate / Time",
-        "5\nDate / Time",
-        "6\nDate / Time",
-        "7\nDate / Time",
-        "Paid\nAmount",
-        "Paid\nDate",
-        "Prev.\nMonth",
-        "Clear\nDate",
-      ]],
-      body,
-      columnStyles: {
-        0: { cellWidth: 20 },
-        1: { cellWidth: 38 },
-        2: { cellWidth: 132, halign: "left" },
-        3: { cellWidth: 60 },
-        4: { cellWidth: 52 },
-        5: { cellWidth: 52 },
-        6: { cellWidth: 52 },
-        7: { cellWidth: 52 },
-        8: { cellWidth: 52 },
-        9: { cellWidth: 52 },
-        10: { cellWidth: 52 },
-        11: { cellWidth: 44 },
-        12: { cellWidth: 44 },
-        13: { cellWidth: 40 },
-        14: { cellWidth: 46 },
-      },
-      didParseCell(data) {
-        // first blank row bigger
-        if (data.section === "body" && data.row.index === 0) {
-          data.cell.styles.minCellHeight = 36;
-        }
-      },
-    });
+    const baseBody = [firstWriteRow, ...studentRows];
 
-    const blob = doc.output("blob");
+    // Pass 1: render without padding
+    const tempDoc = buildDoc(baseBody);
+    const pageHeight = tempDoc.internal.pageSize.getHeight();
+    const finalY = tempDoc.lastAutoTable?.finalY ?? 0;
+
+    // How many normal blank rows fit on the actual last page
+    const normalRowHeight = 26;
+    const remainingSpace = Math.max(0, pageHeight - finalY - pageBottomMargin);
+    const blankRowsNeeded = Math.floor(remainingSpace / normalRowHeight);
+
+    const blankRow = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
+    const finalBody = [
+      ...baseBody,
+      ...Array.from({ length: blankRowsNeeded }, () => [...blankRow]),
+    ];
+
+    // Pass 2: final render
+    const finalDoc = buildDoc(finalBody);
+
+    const blob = finalDoc.output("blob");
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
 
@@ -413,7 +422,9 @@ export default function Classes() {
               </option>
             ))}
           </select>
-          {!grades.length ? <div className="muted">Add grades first.</div> : null}
+          {!grades.length ? (
+            <div className="muted">Add grades first.</div>
+          ) : null}
 
           <label className="label">Subject</label>
           <select
@@ -428,7 +439,9 @@ export default function Classes() {
               </option>
             ))}
           </select>
-          {!subjects.length ? <div className="muted">Add subjects first.</div> : null}
+          {!subjects.length ? (
+            <div className="muted">Add subjects first.</div>
+          ) : null}
 
           <label className="label">Teacher</label>
           <select
@@ -443,7 +456,9 @@ export default function Classes() {
               </option>
             ))}
           </select>
-          {!teachers.length ? <div className="muted">Add teachers first.</div> : null}
+          {!teachers.length ? (
+            <div className="muted">Add teachers first.</div>
+          ) : null}
 
           <label className="label">Class Name</label>
           <Input
@@ -469,7 +484,10 @@ export default function Classes() {
           />
           <div className="muted">0 to 100 (Example: 25 means 25%)</div>
 
-          <Button type="submit" disabled={!canSubmit || submitting || loadingRefs}>
+          <Button
+            type="submit"
+            disabled={!canSubmit || submitting || loadingRefs}
+          >
             {submitting ? "Saving..." : "Register Class"}
           </Button>
         </form>
@@ -545,20 +563,39 @@ export default function Classes() {
                         <td>{Number(instPerc)}%</td>
                         <td>
                           <span
-                            className={isActive ? "badge badgeOk" : "badge badgeOff"}
+                            className={
+                              isActive ? "badge badgeOk" : "badge badgeOff"
+                            }
                           >
                             {isActive ? "Active" : "Inactive"}
                           </span>
                         </td>
                         <td>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <Button type="button" onClick={() => printStudents(c)}>
-                              {printingId === c.id ? "Generating..." : "Print Students"}
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 8,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <Button
+                              type="button"
+                              onClick={() => printStudents(c)}
+                            >
+                              {printingId === c.id
+                                ? "Generating..."
+                                : "Print Students"}
                             </Button>
-                            <Button type="button" onClick={() => toggleActive(c)}>
+                            <Button
+                              type="button"
+                              onClick={() => toggleActive(c)}
+                            >
                               {isActive ? "Deactivate" : "Activate"}
                             </Button>
-                            <Button type="button" onClick={() => deleteClass(c)}>
+                            <Button
+                              type="button"
+                              onClick={() => deleteClass(c)}
+                            >
                               Delete
                             </Button>
                           </div>
@@ -572,8 +609,10 @@ export default function Classes() {
           </div>
 
           <div className="muted">
-            Print Students loads students from <code>/student-classes?classId=CLASS_ID</code>
-            and generates a PDF with Student ID, Name, Mobile, and 4 attendance columns.
+            Print Students loads students from{" "}
+            <code>/student-classes?classId=CLASS_ID</code>
+            and generates a PDF with Student ID, Name, Mobile, and 4 attendance
+            columns.
           </div>
         </div>
       </Card>
