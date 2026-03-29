@@ -1,7 +1,7 @@
 // utils/apiFetch.js
 import toast from "react-hot-toast";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://192.168.8.103:3000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://10.76.86.38:3000";
 
 function redirectToLogin() {
   if (window.location.pathname !== "/login") {
