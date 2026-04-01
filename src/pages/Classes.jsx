@@ -5,6 +5,7 @@ import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import "./../assets/fonts/NotoSansSinhala-Bold-bold.js";
 
 export default function Classes() {
   const [grades, setGrades] = useState([]);
@@ -189,14 +190,7 @@ export default function Classes() {
     }
   }
 
-  function formatDate(value) {
-    if (!value) return "-";
-    const dt = new Date(value);
-    if (Number.isNaN(dt.getTime())) return String(value);
-    return dt.toLocaleDateString();
-  }
-
-  async function printStudents(row) {
+async function printStudents(row) {
   setPrintingId(row.id);
   setErrorMsg("");
   setSuccessMsg("");
@@ -219,8 +213,12 @@ export default function Classes() {
     const firstPageTop = 34;
     const pageBottomMargin = 8;
 
-    const firstWriteRow = [
-      "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+    // ✅ Split Sinhala text into 4 separate rows
+    const sinhalaRows = [
+      ["", "", "දිනය", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["", "", "වේලාව", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["", "", "ගුරුවරයා විසින් ගණන් කරන ලද අද පැමිණි ලමුන් ගණන", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["", "", "ගුරුවරයාගේ අත්සන", "", "", "", "", "", "", "", "", "", "", "", ""],
     ];
 
     const studentRows = list.length
@@ -242,11 +240,13 @@ export default function Classes() {
 
     function buildDoc(bodyRows) {
       const doc = new jsPDF("l", "pt", "a4");
-      const pageWidth = doc.internal.pageSize.getWidth();
 
+      // ✅ SET SINHALA FONT
+      doc.setFont("NotoSansSinhala-Bold", "bold");
+
+      const pageWidth = doc.internal.pageSize.getWidth();
       let y = firstPageTop;
 
-      doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
       doc.text(`${row.name ?? "-"}`, pageWidth / 2, y + 18, {
         align: "center",
@@ -263,7 +263,6 @@ export default function Classes() {
       doc.setLineWidth(0.8);
       doc.roundedRect(boxX, boxY, boxW, boxH, 6, 6);
 
-      doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
 
       const textY = boxY + 22;
@@ -289,50 +288,53 @@ export default function Classes() {
           bottom: 0,
         },
         theme: "grid",
-        pageBreak: "auto",
-        rowPageBreak: "avoid",
+
+        // ✅ APPLY FONT TO TABLE
         styles: {
+          font: "NotoSansSinhala-Bold",
+          fontStyle: "bold",
           fontSize: 8.5,
           cellPadding: 4,
           valign: "middle",
           halign: "center",
           lineColor: [120, 120, 120],
           lineWidth: 0.6,
-          fontStyle: "bold",
           textColor: [0, 0, 0],
+          lineHeight: 1.3,
         },
+
         headStyles: {
+          font: "NotoSansSinhala-Bold",
           fillColor: [230, 230, 230],
           textColor: [0, 0, 0],
-          fontStyle: "bold",
           fontSize: 9,
           minCellHeight: 40,
-          lineColor: [100, 100, 100],
-          lineWidth: 0.7,
         },
+
         bodyStyles: {
           minCellHeight: 26,
-          fontStyle: "bold",
-          textColor: [0, 0, 0],
         },
+
         head: [[
           "No",
           "Student ID",
           "Student Name",
           "Mobile",
-          "1\nDate / Time",
-          "2\nDate / Time",
-          "3\nDate / Time",
-          "4\nDate / Time",
-          "5\nDate / Time",
-          "6\nDate / Time",
-          "7\nDate / Time",
+          "Date 1",
+          "Date 2",
+          "Date 3",
+          "Date 4",
+          "Date 5",
+          "Date 6",
+          "Date 7",
           "Paid\nAmount",
           "Paid\nDate",
           "Prev.\nMonth",
           "Clear\nDate",
         ]],
+
         body: bodyRows,
+
         columnStyles: {
           0: { cellWidth: 20 },
           1: { cellWidth: 42 },
@@ -350,18 +352,25 @@ export default function Classes() {
           13: { cellWidth: 40 },
           14: { cellWidth: 46 },
         },
+
         didParseCell(data) {
-          if (data.section === "body" && data.row.index === 0) {
-            data.cell.styles.minCellHeight = 38;
+          // ✅ Style Sinhala rows (first 4 rows)
+          if (data.section === "body" && data.row.index < 4) {
+            data.cell.styles.minCellHeight = 30;
+            data.cell.styles.valign = "middle";
+
+            if (data.column.index === 2) {
+              data.cell.styles.fontSize = 9;
+              data.cell.styles.halign = "left";
+            }
           }
 
-          if (data.section === "body" && data.column.index === 2) {
-            data.cell.styles.fontSize = 9;
-            data.cell.styles.halign = "left";
-          }
-
-          if (data.section === "body" && data.column.index !== 2) {
-            data.cell.styles.fontSize = 8.5;
+          // normal student rows
+          if (data.section === "body" && data.row.index >= 4) {
+            if (data.column.index === 2) {
+              data.cell.styles.fontSize = 9;
+              data.cell.styles.halign = "left";
+            }
           }
         },
       });
@@ -369,14 +378,12 @@ export default function Classes() {
       return doc;
     }
 
-    const baseBody = [firstWriteRow, ...studentRows];
+    const baseBody = [...sinhalaRows, ...studentRows];
 
-    // Pass 1: render without padding
     const tempDoc = buildDoc(baseBody);
     const pageHeight = tempDoc.internal.pageSize.getHeight();
     const finalY = tempDoc.lastAutoTable?.finalY ?? 0;
 
-    // How many normal blank rows fit on the actual last page
     const normalRowHeight = 26;
     const remainingSpace = Math.max(0, pageHeight - finalY - pageBottomMargin);
     const blankRowsNeeded = Math.floor(remainingSpace / normalRowHeight);
@@ -387,7 +394,6 @@ export default function Classes() {
       ...Array.from({ length: blankRowsNeeded }, () => [...blankRow]),
     ];
 
-    // Pass 2: final render
     const finalDoc = buildDoc(finalBody);
 
     const blob = finalDoc.output("blob");
