@@ -221,10 +221,10 @@ async function printStudents(row) {
   try {
     const res = await apiFetch(
       `/student-classes?classId=${encodeURIComponent(row.id)}`,
-      { method: "GET" },
+      { method: "GET" }
     );
 
-    const list = Array.isArray(res) ? res : (res?.data ?? []);
+    const list = Array.isArray(res) ? res : res?.data ?? [];
 
     const gradeName = row.grade?.name ?? row.gradeName ?? "-";
     const subjectName = row.subject?.name ?? row.subjectName ?? "-";
@@ -245,10 +245,8 @@ async function printStudents(row) {
     const usableHeight = pageHeight - marginTop - marginBottom;
 
     const printWidth = 1750;
-
-    // DOM height limit for one PDF page
     const maxDomPageHeight = Math.floor(
-      (usableHeight * printWidth) / usableWidth,
+      (usableHeight * printWidth) / usableWidth
     );
 
     const headerCellStyle = `
@@ -284,10 +282,9 @@ async function printStudents(row) {
       box-sizing:border-box;
     `;
 
-    // columns after first 4 fixed cells
     const tailCells = Array.from(
       { length: 14 },
-      () => `<td style="${bodyCellStyle}"></td>`,
+      () => `<td style="${bodyCellStyle}"></td>`
     ).join("");
 
     const buildTopHeader = () => `
@@ -335,7 +332,6 @@ async function printStudents(row) {
           <col style="width:3.5%">
           <col style="width:17%">
           <col style="width:7.2%">
-
           <col style="width:5.2%">
           <col style="width:5.2%">
           <col style="width:5.2%">
@@ -344,7 +340,6 @@ async function printStudents(row) {
           <col style="width:5.2%">
           <col style="width:5.2%">
           <col style="width:5.2%">
-
           <col style="width:5.3%">
           <col style="width:4.8%">
           <col style="width:5.5%">
@@ -497,7 +492,6 @@ async function printStudents(row) {
       return height;
     };
 
-    // Build pages automatically by real height measurement
     const pages = [];
     let currentIndex = 0;
     let isFirstPage = true;
@@ -511,7 +505,7 @@ async function printStudents(row) {
       while (currentIndex + addedCount < list.length) {
         const nextRowHtml = buildStudentRow(
           list[currentIndex + addedCount],
-          currentIndex + addedCount + 1,
+          currentIndex + addedCount + 1
         );
         const candidateRowsHtml = pageStudentRowsHtml + nextRowHtml;
 
@@ -533,19 +527,54 @@ async function printStudents(row) {
         }
       }
 
-      // safety: if even one row doesn't fit, still force one row
       if (lastGoodCount === 0 && currentIndex < list.length) {
-        lastGoodRowsHtml = buildStudentRow(
-          list[currentIndex],
-          currentIndex + 1,
-        );
+        lastGoodRowsHtml = buildStudentRow(list[currentIndex], currentIndex + 1);
         lastGoodCount = 1;
       }
 
-      // optional empty rows only on first page when item count is small
+      // Fill bottom of page with blank rows as much as possible
       let fillEmptyRows = 0;
-      if (isFirstPage && list.length <= lastGoodCount) {
-        fillEmptyRows = Math.max(0, 8 - lastGoodCount);
+      while (true) {
+        const candidatePageHtml = buildPageHtml({
+          studentRowsHtml: lastGoodRowsHtml,
+          includeSpecialRows: isFirstPage,
+          fillEmptyRows: fillEmptyRows + 1,
+        });
+
+        const candidateHeight = measureWrapperHeight(candidatePageHtml);
+        if (candidateHeight <= maxDomPageHeight) {
+          fillEmptyRows += 1;
+        } else {
+          break;
+        }
+      }
+
+      // if list empty, still build one page with blanks
+      if (list.length === 0 && isFirstPage) {
+        let emptyOnlyRows = 0;
+        while (true) {
+          const candidatePageHtml = buildPageHtml({
+            studentRowsHtml: "",
+            includeSpecialRows: true,
+            fillEmptyRows: emptyOnlyRows + 1,
+          });
+
+          const candidateHeight = measureWrapperHeight(candidatePageHtml);
+          if (candidateHeight <= maxDomPageHeight) {
+            emptyOnlyRows += 1;
+          } else {
+            break;
+          }
+        }
+
+        pages.push({
+          html: buildPageHtml({
+            studentRowsHtml: "",
+            includeSpecialRows: true,
+            fillEmptyRows: emptyOnlyRows,
+          }),
+        });
+        break;
       }
 
       pages.push({
@@ -558,8 +587,6 @@ async function printStudents(row) {
 
       currentIndex += lastGoodCount;
       isFirstPage = false;
-
-      if (list.length === 0) break;
     }
 
     for (let i = 0; i < pages.length; i++) {
@@ -591,7 +618,7 @@ async function printStudents(row) {
         marginLeft,
         marginTop,
         usableWidth,
-        renderHeight,
+        renderHeight
       );
 
       document.body.removeChild(pageWrapper);
