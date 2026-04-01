@@ -6,6 +6,7 @@ import Button from "../ui/Button.jsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import "./../assets/fonts/NotoSansSinhala-Bold-bold.js";
+import html2canvas from "html2canvas";
 
 export default function Classes() {
   const [grades, setGrades] = useState([]);
@@ -155,6 +156,28 @@ export default function Classes() {
     }
   }
 
+  async function loadSinhalaFont(doc) {
+    try {
+      // Method 1: If you have the font file in public folder
+      // doc.addFont('/fonts/NotoSansSinhala-Bold.ttf', 'NotoSansSinhala-Bold', 'bold');
+      // doc.setFont('NotoSansSinhala-Bold');
+
+      // Method 2: Using addFileToVFS (works better)
+      // doc.addFileToVFS('NotoSansSinhala-Bold.ttf', notoSansSinhalaBase64);
+      // doc.addFont('NotoSansSinhala-Bold.ttf', 'NotoSansSinhala-Bold', 'bold');
+      // doc.setFont('NotoSansSinhala-Bold');
+
+      // Method 3: Simple fallback - use built-in font but with better rendering
+      doc.setFont("helvetica");
+
+      return true;
+    } catch (error) {
+      console.error("Font loading error:", error);
+      doc.setFont("helvetica");
+      return false;
+    }
+  }
+
   async function deleteClass(row) {
     const ok = window.confirm(`Delete class "${row.name}"?`);
     if (!ok) return;
@@ -198,210 +221,389 @@ async function printStudents(row) {
   try {
     const res = await apiFetch(
       `/student-classes?classId=${encodeURIComponent(row.id)}`,
-      { method: "GET" }
+      { method: "GET" },
     );
-    const list = Array.isArray(res) ? res : res?.data ?? [];
+
+    const list = Array.isArray(res) ? res : (res?.data ?? []);
 
     const gradeName = row.grade?.name ?? row.gradeName ?? "-";
     const subjectName = row.subject?.name ?? row.subjectName ?? "-";
     const teacherName =
       row.teacher?.fullName ?? row.teacherName ?? row.teacher?.name ?? "-";
     const classFee = row.fee ? Number(row.fee).toLocaleString() : "-";
-    const monthLabel = "_ _ _ _ _ _ _ _ _ _ _ _";
 
-    const sideMargin = 12;
-    const firstPageTop = 34;
-    const pageBottomMargin = 8;
+    const pdf = new jsPDF("l", "pt", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
 
-    // ✅ Split Sinhala text into 4 separate rows
-    const sinhalaRows = [
-      ["", "", "දිනය", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["", "", "වේලාව", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["", "", "ගුරුවරයා විසින් ගණන් කරන ලද අද පැමිණි ලමුන් ගණන", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["", "", "ගුරුවරයාගේ අත්සන", "", "", "", "", "", "", "", "", "", "", "", ""],
-    ];
+    const marginLeft = 14;
+    const marginRight = 14;
+    const marginTop = 55;
+    const marginBottom = 20;
 
-    const studentRows = list.length
-      ? list.map((item, index) => [
-          index + 1,
-          item.student?.id ?? "-",
-          item.student?.fullName ?? "-",
-          item.student?.studentMobile ??
-            item.student?.mobile ??
-            item.student?.studentWhatsApp ??
-            item.student?.parentMobile ??
-            "-",
-          "", "", "", "", "", "", "",
-          "", "", "", "",
-        ])
-      : [[
-          "", "", "No students found", "", "", "", "", "", "", "", "", "", "", "", "",
-        ]];
+    const usableWidth = pageWidth - marginLeft - marginRight;
+    const usableHeight = pageHeight - marginTop - marginBottom;
 
-    function buildDoc(bodyRows) {
-      const doc = new jsPDF("l", "pt", "a4");
+    const printWidth = 1750;
 
-      // ✅ SET SINHALA FONT
-      doc.setFont("NotoSansSinhala-Bold", "bold");
+    // DOM height limit for one PDF page
+    const maxDomPageHeight = Math.floor(
+      (usableHeight * printWidth) / usableWidth,
+    );
 
-      const pageWidth = doc.internal.pageSize.getWidth();
-      let y = firstPageTop;
+    const headerCellStyle = `
+      border:1px solid #222;
+      padding:12px 8px;
+      font-size:18px;
+      font-weight:700;
+      text-align:center;
+      vertical-align:middle;
+      line-height:1.35;
+      white-space:normal;
+      word-break:break-word;
+    `;
 
-      doc.setFontSize(20);
-      doc.text(`${row.name ?? "-"}`, pageWidth / 2, y + 18, {
-        align: "center",
+    const bodyCellStyle = `
+      border:1px solid #222;
+      padding:10px 8px;
+      font-size:16px;
+      vertical-align:middle;
+      line-height:1.4;
+      height:42px;
+      box-sizing:border-box;
+    `;
+
+    const centeredBodyCellStyle = `
+      border:1px solid #222;
+      padding:10px 8px;
+      font-size:16px;
+      text-align:center;
+      vertical-align:middle;
+      line-height:1.4;
+      height:42px;
+      box-sizing:border-box;
+    `;
+
+    // columns after first 4 fixed cells
+    const tailCells = Array.from(
+      { length: 14 },
+      () => `<td style="${bodyCellStyle}"></td>`,
+    ).join("");
+
+    const buildTopHeader = () => `
+      <div style="padding:24px 20px 18px 20px; color:#000;">
+        <div style="
+          text-align:center;
+          font-size:30px;
+          font-weight:700;
+          margin-bottom:16px;
+          line-height:1.2;
+        ">
+          ${row.name || "-"}
+        </div>
+
+        <div style="
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          gap:20px;
+          border:1px solid #999;
+          border-radius:6px;
+          padding:12px 16px;
+          margin-bottom:18px;
+          font-size:17px;
+          font-weight:600;
+        ">
+          <div><span style="font-weight:700;">Grade:</span> ${gradeName}</div>
+          <div><span style="font-weight:700;">Subject:</span> ${subjectName}</div>
+          <div><span style="font-weight:700;">Teacher's Name:</span> ${teacherName}</div>
+          <div><span style="font-weight:700;">Fee:</span> ${classFee}</div>
+          <div><span style="font-weight:700;">Month:</span> _ _ _ _ _ _ _ _ _ _</div>
+        </div>
+      </div>
+    `;
+
+    const buildTableOpen = () => `
+      <table style="
+        width:100%;
+        border-collapse:collapse;
+        table-layout:fixed;
+        border:1px solid #222;
+      ">
+        <colgroup>
+          <col style="width:2.2%">
+          <col style="width:3.5%">
+          <col style="width:17%">
+          <col style="width:7.2%">
+
+          <col style="width:5.2%">
+          <col style="width:5.2%">
+          <col style="width:5.2%">
+          <col style="width:5.2%">
+          <col style="width:5.2%">
+          <col style="width:5.2%">
+          <col style="width:5.2%">
+          <col style="width:5.2%">
+
+          <col style="width:5.3%">
+          <col style="width:4.8%">
+          <col style="width:5.5%">
+          <col style="width:5.3%">
+          <col style="width:5.5%">
+          <col style="width:5.5%">
+        </colgroup>
+
+        <thead>
+          <tr style="background:#f1f1f1;">
+            <th style="${headerCellStyle}">No</th>
+            <th style="${headerCellStyle}">සිසු අංකය</th>
+            <th style="${headerCellStyle}">සිසුවාගේ නම</th>
+            <th style="${headerCellStyle}">දුරකථන අංකය</th>
+            <th style="${headerCellStyle}">1 වන දිනය</th>
+            <th style="${headerCellStyle}">2 වන දිනය</th>
+            <th style="${headerCellStyle}">3 වන දිනය</th>
+            <th style="${headerCellStyle}">4 වන දිනය</th>
+            <th style="${headerCellStyle}">5 වන දිනය</th>
+            <th style="${headerCellStyle}">6 වන දිනය</th>
+            <th style="${headerCellStyle}">7 වන දිනය</th>
+            <th style="${headerCellStyle}">8 වන දිනය</th>
+            <th style="${headerCellStyle}">මේ මස ගෙවූ මුදල</th>
+            <th style="${headerCellStyle}">මේ මස ගෙවූ දිනය</th>
+            <th style="${headerCellStyle}">ගිය මස ගෙවීමට<br/>තිබේද?</th>
+            <th style="${headerCellStyle}">ගිය මස<br/>ගෙවූ මුදල</th>
+            <th style="${headerCellStyle}">ගිය මස මුදල්<br/>ගෙවූ දිනය</th>
+            <th style="${headerCellStyle}">ගුරුවරයාට<br/>ගෙවූ දිනය</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    const buildTableClose = () => `
+        </tbody>
+      </table>
+    `;
+
+    const buildSpecialRows = () => `
+      <tr>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; font-weight:600;">පංතිය පැවැත් වූ දිනය</td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; text-align:center;"></td>
+        ${tailCells}
+      </tr>
+
+      <tr>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; font-weight:600;">පංතිය පටන් ගත් වේලාව</td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; text-align:center;"></td>
+        ${tailCells}
+      </tr>
+
+      <tr>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; font-weight:600;">පංතිය අවසන් කරන වේලාව</td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; text-align:center;"></td>
+        ${tailCells}
+      </tr>
+
+      <tr>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; font-weight:600;">
+          ගුරුවරයා විසින් ගණන් කරන ලද අද පැමිණි ලමුන් ගණන
+        </td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; text-align:center;"></td>
+        ${tailCells}
+      </tr>
+
+      <tr>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; font-weight:600;">ගුරුවරයාගේ අත්සන</td>
+        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}; text-align:center;"></td>
+        ${tailCells}
+      </tr>
+    `;
+
+    const buildStudentRow = (item, indexNumber) => `
+      <tr>
+        <td style="${centeredBodyCellStyle}">${indexNumber}</td>
+        <td style="${centeredBodyCellStyle}">${item.student?.id ?? "-"}</td>
+        <td style="${bodyCellStyle}; font-weight:600;">
+          ${item.student?.fullName ?? "-"}
+        </td>
+        <td style="${bodyCellStyle}; font-weight:600;">
+          ${item.student?.studentMobile ?? item.student?.mobile ?? "-"}
+        </td>
+        ${tailCells}
+      </tr>
+    `;
+
+    const buildEmptyRows = (count) => {
+      let rows = "";
+      for (let i = 0; i < count; i++) {
+        rows += `
+          <tr>
+            <td style="${centeredBodyCellStyle}"></td>
+            <td style="${centeredBodyCellStyle}"></td>
+            <td style="${bodyCellStyle}"></td>
+            <td style="${bodyCellStyle}"></td>
+            ${tailCells}
+          </tr>
+        `;
+      }
+      return rows;
+    };
+
+    const buildPageHtml = ({
+      studentRowsHtml,
+      includeSpecialRows,
+      fillEmptyRows = 0,
+    }) => `
+      <div style="
+        width:${printWidth}px;
+        background:#fff;
+        font-family:'Noto Sans Sinhala', Arial, sans-serif;
+      ">
+        ${buildTopHeader()}
+        <div style="padding:0 20px 28px 20px;">
+          ${buildTableOpen()}
+          ${includeSpecialRows ? buildSpecialRows() : ""}
+          ${studentRowsHtml}
+          ${fillEmptyRows > 0 ? buildEmptyRows(fillEmptyRows) : ""}
+          ${buildTableClose()}
+        </div>
+      </div>
+    `;
+
+    const measureWrapperHeight = (html) => {
+      const measureDiv = document.createElement("div");
+      measureDiv.style.position = "absolute";
+      measureDiv.style.left = "-99999px";
+      measureDiv.style.top = "0";
+      measureDiv.style.width = `${printWidth}px`;
+      measureDiv.style.background = "#fff";
+      measureDiv.innerHTML = html;
+      document.body.appendChild(measureDiv);
+      const height = measureDiv.offsetHeight;
+      document.body.removeChild(measureDiv);
+      return height;
+    };
+
+    // Build pages automatically by real height measurement
+    const pages = [];
+    let currentIndex = 0;
+    let isFirstPage = true;
+
+    while (currentIndex < list.length || (list.length === 0 && isFirstPage)) {
+      let pageStudentRowsHtml = "";
+      let lastGoodRowsHtml = "";
+      let lastGoodCount = 0;
+      let addedCount = 0;
+
+      while (currentIndex + addedCount < list.length) {
+        const nextRowHtml = buildStudentRow(
+          list[currentIndex + addedCount],
+          currentIndex + addedCount + 1,
+        );
+        const candidateRowsHtml = pageStudentRowsHtml + nextRowHtml;
+
+        const candidatePageHtml = buildPageHtml({
+          studentRowsHtml: candidateRowsHtml,
+          includeSpecialRows: isFirstPage,
+          fillEmptyRows: 0,
+        });
+
+        const candidateHeight = measureWrapperHeight(candidatePageHtml);
+
+        if (candidateHeight <= maxDomPageHeight) {
+          pageStudentRowsHtml = candidateRowsHtml;
+          lastGoodRowsHtml = candidateRowsHtml;
+          lastGoodCount = addedCount + 1;
+          addedCount += 1;
+        } else {
+          break;
+        }
+      }
+
+      // safety: if even one row doesn't fit, still force one row
+      if (lastGoodCount === 0 && currentIndex < list.length) {
+        lastGoodRowsHtml = buildStudentRow(
+          list[currentIndex],
+          currentIndex + 1,
+        );
+        lastGoodCount = 1;
+      }
+
+      // optional empty rows only on first page when item count is small
+      let fillEmptyRows = 0;
+      if (isFirstPage && list.length <= lastGoodCount) {
+        fillEmptyRows = Math.max(0, 8 - lastGoodCount);
+      }
+
+      pages.push({
+        html: buildPageHtml({
+          studentRowsHtml: lastGoodRowsHtml,
+          includeSpecialRows: isFirstPage,
+          fillEmptyRows,
+        }),
       });
 
-      y += 44;
+      currentIndex += lastGoodCount;
+      isFirstPage = false;
 
-      const boxX = sideMargin;
-      const boxY = y - 18;
-      const boxW = pageWidth - sideMargin * 2;
-      const boxH = 34;
-
-      doc.setDrawColor(130, 130, 130);
-      doc.setLineWidth(0.8);
-      doc.roundedRect(boxX, boxY, boxW, boxH, 6, 6);
-
-      doc.setFontSize(11);
-
-      const textY = boxY + 22;
-      const c1 = boxX + 10;
-      const c2 = boxX + boxW * 0.18;
-      const c3 = boxX + boxW * 0.34;
-      const c4 = boxX + boxW * 0.66;
-      const c5 = boxX + boxW * 0.80;
-
-      doc.text(`Grade: ${gradeName}`, c1, textY);
-      doc.text(`Subject: ${subjectName}`, c2, textY);
-      doc.text(`Teacher: ${teacherName}`, c3, textY);
-      doc.text(`Fee: ${classFee}`, c4, textY);
-      doc.text(`Month: ${monthLabel}`, c5, textY);
-
-      const startY = boxY + boxH + 12;
-
-      autoTable(doc, {
-        startY,
-        margin: {
-          left: sideMargin,
-          right: sideMargin,
-          bottom: 0,
-        },
-        theme: "grid",
-
-        // ✅ APPLY FONT TO TABLE
-        styles: {
-          font: "NotoSansSinhala-Bold",
-          fontStyle: "bold",
-          fontSize: 8.5,
-          cellPadding: 4,
-          valign: "middle",
-          halign: "center",
-          lineColor: [120, 120, 120],
-          lineWidth: 0.6,
-          textColor: [0, 0, 0],
-          lineHeight: 1.3,
-        },
-
-        headStyles: {
-          font: "NotoSansSinhala-Bold",
-          fillColor: [230, 230, 230],
-          textColor: [0, 0, 0],
-          fontSize: 9,
-          minCellHeight: 40,
-        },
-
-        bodyStyles: {
-          minCellHeight: 26,
-        },
-
-        head: [[
-          "No",
-          "Student ID",
-          "Student Name",
-          "Mobile",
-          "Date 1",
-          "Date 2",
-          "Date 3",
-          "Date 4",
-          "Date 5",
-          "Date 6",
-          "Date 7",
-          "Paid\nAmount",
-          "Paid\nDate",
-          "Prev.\nMonth",
-          "Clear\nDate",
-        ]],
-
-        body: bodyRows,
-
-        columnStyles: {
-          0: { cellWidth: 20 },
-          1: { cellWidth: 42 },
-          2: { cellWidth: 132, halign: "left" },
-          3: { cellWidth: 60 },
-          4: { cellWidth: 52 },
-          5: { cellWidth: 52 },
-          6: { cellWidth: 52 },
-          7: { cellWidth: 52 },
-          8: { cellWidth: 52 },
-          9: { cellWidth: 52 },
-          10: { cellWidth: 52 },
-          11: { cellWidth: 44 },
-          12: { cellWidth: 44 },
-          13: { cellWidth: 40 },
-          14: { cellWidth: 46 },
-        },
-
-        didParseCell(data) {
-          // ✅ Style Sinhala rows (first 4 rows)
-          if (data.section === "body" && data.row.index < 4) {
-            data.cell.styles.minCellHeight = 30;
-            data.cell.styles.valign = "middle";
-
-            if (data.column.index === 2) {
-              data.cell.styles.fontSize = 9;
-              data.cell.styles.halign = "left";
-            }
-          }
-
-          // normal student rows
-          if (data.section === "body" && data.row.index >= 4) {
-            if (data.column.index === 2) {
-              data.cell.styles.fontSize = 9;
-              data.cell.styles.halign = "left";
-            }
-          }
-        },
-      });
-
-      return doc;
+      if (list.length === 0) break;
     }
 
-    const baseBody = [...sinhalaRows, ...studentRows];
+    for (let i = 0; i < pages.length; i++) {
+      const pageWrapper = document.createElement("div");
+      pageWrapper.style.position = "absolute";
+      pageWrapper.style.left = "-99999px";
+      pageWrapper.style.top = "0";
+      pageWrapper.style.background = "#fff";
+      pageWrapper.innerHTML = pages[i].html;
+      document.body.appendChild(pageWrapper);
 
-    const tempDoc = buildDoc(baseBody);
-    const pageHeight = tempDoc.internal.pageSize.getHeight();
-    const finalY = tempDoc.lastAutoTable?.finalY ?? 0;
+      const canvas = await html2canvas(pageWrapper, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
 
-    const normalRowHeight = 26;
-    const remainingSpace = Math.max(0, pageHeight - finalY - pageBottomMargin);
-    const blankRowsNeeded = Math.floor(remainingSpace / normalRowHeight);
+      const imgData = canvas.toDataURL("image/png");
+      const renderHeight = (canvas.height * usableWidth) / canvas.width;
 
-    const blankRow = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
-    const finalBody = [
-      ...baseBody,
-      ...Array.from({ length: blankRowsNeeded }, () => [...blankRow]),
-    ];
+      if (i > 0) {
+        pdf.addPage();
+      }
 
-    const finalDoc = buildDoc(finalBody);
+      pdf.addImage(
+        imgData,
+        "PNG",
+        marginLeft,
+        marginTop,
+        usableWidth,
+        renderHeight,
+      );
 
-    const blob = finalDoc.output("blob");
+      document.body.removeChild(pageWrapper);
+    }
+
+    const blob = pdf.output("blob");
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
 
-    setSuccessMsg(`Student sheet generated.`);
+    setSuccessMsg("Student sheet generated successfully.");
   } catch (e) {
+    console.error("PDF Error:", e);
     setErrorMsg(e.message || "Failed to generate PDF");
   } finally {
     setPrintingId(null);
