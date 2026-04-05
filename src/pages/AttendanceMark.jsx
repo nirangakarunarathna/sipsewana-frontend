@@ -4,7 +4,7 @@ import Card from "../ui/Card.jsx";
 import Input from "../ui/Input.jsx";
 import Button from "../ui/Button.jsx";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://10.76.86.38:3000";
 
 function ymNow() {
   return new Date().toISOString().slice(0, 7); // YYYY-MM
