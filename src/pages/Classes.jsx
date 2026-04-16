@@ -382,7 +382,7 @@ async function printStudents(row) {
       <tr>
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}"></td>
-        <td style="${bodyCellStyle}; font-weight:600;">පංතිය පැවැත් වූ දිනය</td>
+        <td style="${bodyCellStyle}; font-weight:600;">පංතිය පැවැත් වූ දිනය (මාසය / දිනය)</td>
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}; text-align:center;"></td>
         ${tailCells}
