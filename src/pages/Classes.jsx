@@ -383,7 +383,7 @@ async function printStudents(row) {
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}; font-weight:600;">පංතිය පැවැත් වූ දිනය (මාසය / දිනය)</td>
-        <td style="${bodyCellStyle}">******</td>
+        <td style="${bodyCellStyle}">*********</td>
         <td style="${bodyCellStyle}; text-align:center;"></td>
         ${tailCells}
       </tr>
@@ -392,7 +392,7 @@ async function printStudents(row) {
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}; font-weight:600;">පංතිය පටන් ගත් වේලාව</td>
-        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}">*********</td>
         <td style="${bodyCellStyle}; text-align:center;"></td>
         ${tailCells}
       </tr>
@@ -401,7 +401,7 @@ async function printStudents(row) {
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}; font-weight:600;">පංතිය අවසන් කරන වේලාව</td>
-        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}">*********</td>
         <td style="${bodyCellStyle}; text-align:center;"></td>
         ${tailCells}
       </tr>
@@ -412,7 +412,7 @@ async function printStudents(row) {
         <td style="${bodyCellStyle}; font-weight:600;">
           ගුරුවරයා විසින් ගණන් කරන ලද අද පැමිණි ලමුන් ගණන
         </td>
-        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}">*********</td>
         <td style="${bodyCellStyle}; text-align:center;"></td>
         ${tailCells}
       </tr>
@@ -421,7 +421,7 @@ async function printStudents(row) {
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}"></td>
         <td style="${bodyCellStyle}; font-weight:600;">ගුරුවරයාගේ අත්සන</td>
-        <td style="${bodyCellStyle}"></td>
+        <td style="${bodyCellStyle}">*********</td>
         <td style="${bodyCellStyle}; text-align:center;"></td>
         ${tailCells}
       </tr>
