@@ -252,7 +252,7 @@ async function printStudents(row) {
     const headerCellStyle = `
       border:1px solid #222;
       padding:12px 8px;
-      font-size:18px;
+      font-size:20px;
       font-weight:700;
       text-align:center;
       vertical-align:middle;
@@ -264,10 +264,10 @@ async function printStudents(row) {
     const bodyCellStyle = `
       border:1px solid #222;
       padding:10px 8px;
-      font-size:16px;
+      font-size:18px;
       vertical-align:middle;
-      line-height:1.4;
-      height:42px;
+      line-height:1.5;
+      height:48px;
       box-sizing:border-box;
     `;
 
