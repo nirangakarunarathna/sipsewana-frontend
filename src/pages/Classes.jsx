@@ -362,11 +362,11 @@ async function printStudents(row) {
             <th style="${headerCellStyle}">6 වන දිනය</th>
             <th style="${headerCellStyle}">7 වන දිනය</th>
             <th style="${headerCellStyle}">8 වන දිනය</th>
-            <th style="${headerCellStyle}">මේ මස ගෙවූ මුදල</th>
             <th style="${headerCellStyle}">මේ මස ගෙවූ දිනය</th>
+            <th style="${headerCellStyle}">මේ මස ගෙවූ මුදල</th>
             <th style="${headerCellStyle}">ගිය මස ගෙවීමට<br/>තිබේද?</th>
-            <th style="${headerCellStyle}">ගිය මස<br/>ගෙවූ මුදල</th>
             <th style="${headerCellStyle}">ගිය මස මුදල්<br/>ගෙවූ දිනය</th>
+            <th style="${headerCellStyle}">ගිය මස<br/>ගෙවූ මුදල</th>
             <th style="${headerCellStyle}">ගුරුවරයාට<br/>ගෙවූ දිනය</th>
           </tr>
         </thead>
