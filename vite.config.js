@@ -8,13 +8,13 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     hmr: {
-      host: '192.168.8.103',
+      host: '10.231.32.253',
       protocol: 'ws',
       port: 5173,
     },
     proxy: {
       '/api': {
-        target: 'http://192.168.8.103:3000',
+        target: 'http://10.231.32.253:3000',
         changeOrigin: true,
         secure: false,
       },
